@@ -133,6 +133,51 @@ def play_games(agent: ActorCriticAgent, n_games: int = 1, render: bool = True, g
     print(f"最多剩余棋子数  : {np.max(pegs_left_list)}")
 
 
+def play(experiment: str = None, 
+         agent: str = 'actor_critic',
+         checkpoint: str = None,
+         n_games: int = 1,
+         render: bool = True,
+         greedy: bool = True,
+         remote: bool = False):
+    """
+    从 checkpoint 加载 Agent 并运行游戏（脚本模式）
+    
+    Args:
+        experiment: 实验目录路径（例如: checkpoints-and-logs/local/A2C_2026_04_14-21_00）
+        agent: 使用的算法 ('actor_critic' 或 'ppo')
+        checkpoint: checkpoint 文件路径（不指定则自动使用最新）
+        n_games: 游戏局数
+        render: 是否渲染游戏画面
+        greedy: 是否使用贪心策略
+        remote: 是否从远程目录加载
+    """
+    # 确定 checkpoint 路径
+    if checkpoint:
+        checkpoint_path = checkpoint
+        if not os.path.exists(checkpoint_path):
+            print(f"错误：checkpoint 文件不存在: {checkpoint_path}")
+            return
+    else:
+        checkpoint_path = find_latest_checkpoint(
+            agent_name=agent, 
+            use_remote=remote,
+            experiment_dir=experiment
+        )
+
+    location = "远程" if remote else ("实验目录" if experiment else "本地")
+    print(f"算法: {agent.upper()}")
+    print(f"Checkpoint 位置: {location}")
+    print(f"加载 checkpoint: {checkpoint_path}")
+
+    # 加载 agent
+    agent_obj = load_agent(checkpoint_path, agent_name=agent)
+    print(f"Agent 加载成功：{agent_obj.name}\n")
+
+    # 运行游戏
+    play_games(agent_obj, n_games=n_games, render=render, greedy=greedy)
+
+
 def main():
     parser = argparse.ArgumentParser(description="从 checkpoint 加载 Agent 并运行游戏")
     parser.add_argument("--agent", type=str, default='actor_critic',
@@ -152,32 +197,33 @@ def main():
                         help="从远程目录加载 checkpoint（被 git 提交的）")
     args = parser.parse_args()
 
-    # 确定 checkpoint 路径
-    if args.checkpoint:
-        checkpoint_path = args.checkpoint
-        if not os.path.exists(checkpoint_path):
-            print(f"错误：checkpoint 文件不存在: {checkpoint_path}")
-            sys.exit(1)
-    else:
-        checkpoint_path = find_latest_checkpoint(
-            agent_name=args.agent, 
-            use_remote=args.remote,
-            experiment_dir=args.experiment
-        )
-
-    location = "远程" if args.remote else ("实验目录" if args.experiment else "本地")
-    print(f"算法: {args.agent.upper()}")
-    print(f"Checkpoint 位置: {location}")
-    print(f"加载 checkpoint: {checkpoint_path}")
-
-    # 加载 agent
-    agent = load_agent(checkpoint_path, agent_name=args.agent)
-    print(f"Agent 加载成功：{agent.name}\n")
-
-    # 运行游戏
-    render = not args.no_render
-    play_games(agent, n_games=args.n_games, render=render, greedy=args.greedy)
+    # 调用 play 函数
+    play(
+        experiment=args.experiment,
+        agent=args.agent,
+        checkpoint=args.checkpoint,
+        n_games=args.n_games,
+        render=not args.no_render,
+        greedy=args.greedy,
+        remote=args.remote
+    )
 
 
 if __name__ == "__main__":
-    main()
+    # 使用方法 1: 命令行运行（推荐）
+    #   python play.py --experiment checkpoints-and-logs/remote/A2C_2026_04_14-21_00 --n-games 5
+    #   python play.py --agent ppo --n-games 3
+    #   python play.py --agent actor_critic --no-render
+    #
+    # 使用方法 2: 脚本模式（在 Python 代码中调用）
+    #   play(experiment="checkpoints-and-logs/remote/A2C_2026_04_14-21_00", n_games=5)
+    #   play(agent="ppo", n_games=3, render=False)
+    
+    # 如果是通过命令行调用，argparse 会处理；否则直接运行
+    import sys
+    if len(sys.argv) == 1:
+        # 没有命令行参数，使用默认配置
+        play(agent='actor_critic',experiment="checkpoints-and-logs/remote/A2C_2026_04_14-21_00", n_games=1, render=True)
+    else:
+        # 有命令行参数，使用 argparse
+        main()
