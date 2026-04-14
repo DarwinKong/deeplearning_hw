@@ -1,0 +1,4 @@
+2026-04-14 16:19:42,769 [INFO ] -- run - run  ---------  Running experiment with agent ppo and network fc_policy_value ---------
+2026-04-14 16:19:42,770 [INFO ] -- run - run  Saving run results and logs at ./agents\ppo\runs\2026_04_14-16_19
+2026-04-14 16:19:42,770 [INFO ] -- run - run  Running with random seed 42
+2026-04-14 16:19:42,771 [INFO ] -- run - run  Running with discount factor 1.0

@@ -1,0 +1,14 @@
+2026-04-14 16:57:43,054 [INFO ] -- run - run  ---------  Running experiment with agent actor_critic and network fc_policy_value ---------
+2026-04-14 16:57:43,054 [INFO ] -- run - run  Saving run results and logs at ./agents\actor_critic\runs\2026_04_14-16_57
+2026-04-14 16:57:43,054 [INFO ] -- run - run  Running with random seed 42
+2026-04-14 16:57:43,054 [INFO ] -- run - run  Running with discount factor 1.0
+2026-04-14 16:57:52,488 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 0: mean reward: 0.786, mean pegs left: 7.62
+2026-04-14 16:58:06,956 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 10: mean reward: 0.805, mean pegs left: 7.04
+2026-04-14 16:58:21,107 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 20: mean reward: 0.777, mean pegs left: 7.90
+2026-04-14 16:58:35,307 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 30: mean reward: 0.785, mean pegs left: 7.68
+2026-04-14 16:58:49,435 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 40: mean reward: 0.785, mean pegs left: 7.68
+2026-04-14 16:59:04,057 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 50: mean reward: 0.797, mean pegs left: 7.28
+2026-04-14 16:59:18,431 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 60: mean reward: 0.790, mean pegs left: 7.50
+2026-04-14 16:59:32,714 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 70: mean reward: 0.788, mean pegs left: 7.56
+2026-04-14 16:59:47,477 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 80: mean reward: 0.805, mean pegs left: 7.06
+2026-04-14 17:00:02,977 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 90: mean reward: 0.785, mean pegs left: 7.68

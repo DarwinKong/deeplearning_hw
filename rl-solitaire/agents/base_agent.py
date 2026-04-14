@@ -1,5 +1,15 @@
+import platform
 import matplotlib
-matplotlib.use('macosx')
+
+# 跨平台兼容的 matplotlib backend 设置
+system = platform.system()
+if system == 'Darwin':  # macOS
+    matplotlib.use('macosx')
+elif system == 'Windows':  # Windows
+    matplotlib.use('TkAgg')  # Windows 上使用 TkAgg
+else:  # Linux 和其他系统
+    matplotlib.use('Agg')  # 非交互式后端，适合服务器
+
 import matplotlib.pyplot as plt
 import numpy as np
 

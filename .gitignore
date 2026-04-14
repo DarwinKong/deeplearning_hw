@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Checkpoints (intermediate training artifacts - large binary files)
+# These are saved every 100 training steps and can be regenerated
+*.ckpt
+
+# PyTorch Lightning logs (huge number of event files)
+lightning_logs/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.venv/
+env/
+env.bak/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

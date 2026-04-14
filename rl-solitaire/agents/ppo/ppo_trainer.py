@@ -54,7 +54,7 @@ class PPOTrainer(BaseTrainer):
         self.checkpoints_dir = checkpoints_dir
 
         # Pytorch lightning logger
-        pl_logger = self.get_pl_logger(name="neptune", log_dir=log_dir)
+        pl_logger = self.get_pl_logger(name="tensorboard", log_dir=log_dir)
 
         # Checkpoints callback
         checkpoint_callback = ModelCheckpoint(dirpath=checkpoints_dir,

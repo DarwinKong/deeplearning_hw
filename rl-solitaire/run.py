@@ -22,10 +22,16 @@ SEED = 42
 DEFAULT_DISCOUNT_FACTOR = 1.0
 
 
-# @click.command()
-# @click.option('-an', '--agent_name', required=True, type=click.STRING, help='The name of the agent to train')
-# @click.option('-nn', '--network_name', required=False, type=click.STRING, default=None,
-#               help='The name of the agent to train')
+@click.command()
+@click.option('-an', '--agent_name', required=True, type=click.STRING, 
+              help='Agent name: "actor_critic" (A2C) or "ppo"')
+@click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',
+              help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
+def main(agent_name: str, network_name: str = None):
+    """RL Solitaire 训练入口"""
+    run(agent_name=agent_name, network_name=network_name)
+
+
 def run(agent_name: str, network_name: str = None):
     # file paths and dirs
     agent_dir = os.path.join(ROOT, "agents", agent_name)
@@ -113,8 +119,22 @@ def get_discount_factor(config_dict: dict) -> float:
 
 
 if __name__ == "__main__":
-    # network_name = "conv_policy_value"
-    network_name = "fc_policy_value"
-    agent_name = 'actor_critic'
-    # agent_name = 'ppo'
-    run(agent_name=agent_name, network_name=network_name)
+    # 使用方法 1: 命令行运行（推荐）
+    #   python run.py -an actor_critic -nn fc_policy_value
+    #   python run.py -an ppo -nn fc_policy_value
+    #
+    # 使用方法 2: 直接修改下面的参数并运行
+    #   python run.py
+    
+    # 默认配置（当直接运行时使用）
+    network_name = "fc_policy_value"  # 网络架构
+    agent_name = 'actor_critic'        # 算法: 'actor_critic' (A2C) 或 'ppo'
+    
+    # 如果是通过命令行调用，Click 会处理；否则直接运行
+    import sys
+    if len(sys.argv) == 1:
+        # 没有命令行参数，使用默认配置
+        run(agent_name=agent_name, network_name=network_name)
+    else:
+        # 有命令行参数，使用 Click
+        main()

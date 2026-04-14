@@ -122,7 +122,7 @@ class BasePolicyValueNet(BaseNet):
         :param batch_nb: int, the index of the current batch
         :return: dict with the training metrics.
         """
-        if len(batch) == 5:  # standard way of training the network
+        if len(batch) == 5:  # standard way of training the network (A2C)
             states, action_indices, action_masks, advantages, value_targets = batch
             logits, values = self.forward(states)
             actor_loss = self.actor_loss(logits, action_indices)
@@ -130,7 +130,33 @@ class BasePolicyValueNet(BaseNet):
         elif len(batch) == 6:  # PPO network needs action probabilities from old policy
             states, action_indices, action_probas, action_masks, advantages, value_targets = batch
             logits, values = self.forward(states)
-            advantage_actor_loss = self.actor_loss(logits, action_indices, action_probas, advantages)
+            
+            # PPO clipped surrogate objective
+            # Compute log probabilities of actions under current policy
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+            
+            # Ensure action_indices has the right shape for gather
+            if action_indices.dim() == 1:
+                action_indices = action_indices.unsqueeze(1)
+            
+            log_prob_actions = log_probs.gather(1, action_indices.long())
+            
+            # Compute probability ratio: pi_new(a|s) / pi_old(a|s)
+            # action_probas contains pi_old(a|s)
+            prob_ratio = torch.exp(log_prob_actions) / (action_probas + 1e-8)
+            
+            # Clipped surrogate objective
+            epsilon = 0.2  # PPO clipping parameter
+            clipped_prob_ratio = torch.clamp(prob_ratio, 1 - epsilon, 1 + epsilon)
+            
+            # Take minimum of clipped and unclipped objectives
+            surrogate_loss = torch.min(
+                prob_ratio * advantages,
+                clipped_prob_ratio * advantages
+            )
+            
+            # Negative because we want to maximize the objective
+            advantage_actor_loss = -torch.mean(surrogate_loss)
         else:
             raise ValueError(f"Batch length must be 5 or 6 but was {len(batch)}")
 

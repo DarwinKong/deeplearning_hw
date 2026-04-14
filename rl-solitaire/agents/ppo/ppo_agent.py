@@ -29,7 +29,7 @@ class PPOAgent(BaseAgent):
         :return: an np.ndarray of shape of size (batch_size, N_ACTIONS) containing the policy for each state in the
         batch.
         """
-        return self.network.get_policy(torch.from_numpy(states)).numpy()
+        return self.network.get_policy(torch.from_numpy(states)).detach().numpy()
 
     def _format_data(self, states, actions, action_masks, rewards, next_state, end) -> dict[str, np.ndarray]:
         t = len(states)
