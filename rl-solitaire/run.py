@@ -26,12 +26,23 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
 # @click.option('-an', '--agent_name', required=True, type=click.STRING, help='The name of the agent to train')
 # @click.option('-nn', '--network_name', required=False, type=click.STRING, default=None,
 #               help='The name of the agent to train')
-def run(agent_name: str, network_name: str = None):
+def run(agent_name: str, network_name: str = None, checkpoint_path: str = None):
     # file paths and dirs
     agent_dir = os.path.join(ROOT, "agents", agent_name)
-    run_dirname = strp_datetime(datetime.now())
-    run_dir = os.path.join(agent_dir, RUNS_DIRNAME, run_dirname)
-    log_filepath, checkpoints_dir, results_filepath = set_up_files_dirs_and_paths(run_dir)
+
+    # 如果从 checkpoint 恢复，复用原有的 run 目录；否则新建
+    if checkpoint_path is not None:
+        # checkpoint 路径形如 .../runs/<run_dirname>/checkpoints/xxx.ckpt
+        # 向上两层取到 run_dir
+        run_dir = os.path.dirname(os.path.dirname(os.path.abspath(checkpoint_path)))
+        log_filepath = os.path.join(run_dir, LOG_FILENAME)
+        checkpoints_dir = os.path.join(run_dir, CHECKPOINTS_DIRNAME)
+        results_filepath = os.path.join(run_dir, RESULTS_FILENAME)
+    else:
+        run_dirname = strp_datetime(datetime.now())
+        run_dir = os.path.join(agent_dir, RUNS_DIRNAME, run_dirname)
+        log_filepath, checkpoints_dir, results_filepath = set_up_files_dirs_and_paths(run_dir)
+
     logger = set_up_logger(path=log_filepath)
 
     # trainer config
@@ -57,7 +68,13 @@ def run(agent_name: str, network_name: str = None):
             yaml.safe_dump(network_config_dict, file)
         network_config = NetConfig(config_dict=network_config_dict)
         network_class = get_network_class_from_name(network_name)
-        network = network_class(network_config)
+
+        if checkpoint_path is not None:
+            # 从 checkpoint 加载网络权重（PyTorch Lightning 的方式）
+            network = network_class.load_from_checkpoint(checkpoint_path)
+            logger.info(f"Restored network from checkpoint: {checkpoint_path}")
+        else:
+            network = network_class(network_config)
 
     # define agent
     agent_class = get_class_from_name(agent_name, class_type="agent")
@@ -113,8 +130,15 @@ def get_discount_factor(config_dict: dict) -> float:
 
 
 if __name__ == "__main__":
-    # network_name = "conv_policy_value"
-    network_name = "fc_policy_value"
-    agent_name = 'actor_critic'
-    # agent_name = 'ppo'
-    run(agent_name=agent_name, network_name=network_name)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train RL solitaire agent")
+    parser.add_argument("--agent_name", type=str, default="actor_critic",
+                        help="Name of the agent to train (e.g. actor_critic, ppo)")
+    parser.add_argument("--network_name", type=str, default="fc_policy_value",
+                        help="Name of the network to use (e.g. fc_policy_value, conv_policy_value)")
+    parser.add_argument("--checkpoint_path", type=str, default=None,
+                        help="Path to a .ckpt file to resume training from. If not provided, starts from scratch.")
+    args = parser.parse_args()
+
+    run(agent_name=args.agent_name, network_name=args.network_name, checkpoint_path=args.checkpoint_path)
