@@ -8,12 +8,16 @@
     python3 play.py --no-render             # 不渲染，只打印结果
     python3 play.py --n-games 5            # 运行 5 局游戏
     python3 play.py --checkpoint <路径>    # 指定 checkpoint 文件
+    python3 play.py --remote               # 从远程目录加载（被 git 提交的）
 """
 import os
 import sys
 import glob
 import argparse
 import numpy as np
+
+# 将 rl-solitaire 目录加入路径（兼容从根目录运行）
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rl-solitaire'))
 
 # 跨平台兼容的 matplotlib backend 设置
 import platform
@@ -27,9 +31,6 @@ else:  # Linux
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# 将 rl-solitaire 目录加入路径（兼容从任意目录运行）
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from env.env import Env
 from nn.network_config import NetConfig
 from nn.policy_value.fully_connected import FCPolicyValueNet
@@ -38,33 +39,39 @@ from agents.ppo.ppo_agent import PPOAgent
 from utils.tools import read_yaml
 
 
+# Checkpoints directory structure
+CHECKPOINTS_BASE_DIR = "./checkpoints"
+LOCAL_CHECKPOINTS_SUBDIR = "local"
+REMOTE_CHECKPOINTS_SUBDIR = "remote"
+
 # 支持的算法及其配置
 SUPPORTED_AGENTS = {
     'actor_critic': {
-        'runs_dir': './agents/actor_critic/runs',
         'agent_class': ActorCriticAgent,
         'agent_name': 'ActorCriticAgent'
     },
     'ppo': {
-        'runs_dir': './agents/ppo/runs',
         'agent_class': PPOAgent,
         'agent_name': 'PPOAgent'
     }
 }
 
-NETWORK_CONFIG_PATH = "./nn/policy_value/fc_policy_value_config.yaml"
+NETWORK_CONFIG_PATH = "./rl-solitaire/nn/policy_value/fc_policy_value_config.yaml"
 
 
-def find_latest_checkpoint(agent_name: str = 'actor_critic') -> str:
-    """在指定算法的 runs 目录中找到最新的 checkpoint 文件"""
+def find_latest_checkpoint(agent_name: str = 'actor_critic', use_remote: bool = False) -> str:
+    """在指定算法的 checkpoints 目录中找到最新的 checkpoint 文件"""
     if agent_name not in SUPPORTED_AGENTS:
         raise ValueError(f"不支持的算法: {agent_name}。支持的算法: {list(SUPPORTED_AGENTS.keys())}")
     
-    runs_dir = SUPPORTED_AGENTS[agent_name]['runs_dir']
-    pattern = os.path.join(runs_dir, "*", "checkpoints", "*.ckpt")
+    checkpoint_subdir = REMOTE_CHECKPOINTS_SUBDIR if use_remote else LOCAL_CHECKPOINTS_SUBDIR
+    checkpoints_dir = os.path.join(CHECKPOINTS_BASE_DIR, agent_name, checkpoint_subdir)
+    
+    pattern = os.path.join(checkpoints_dir, "*.ckpt")
     checkpoints = glob.glob(pattern)
     if not checkpoints:
-        raise FileNotFoundError(f"在 {runs_dir} 下未找到任何 checkpoint 文件，请先运行训练。")
+        dir_type = "远程" if use_remote else "本地"
+        raise FileNotFoundError(f"在 {checkpoints_dir} ({dir_type}) 下未找到任何 checkpoint 文件，请先运行训练。")
     # 按文件修改时间排序，取最新的
     latest = max(checkpoints, key=os.path.getmtime)
     return latest
@@ -128,6 +135,8 @@ def main():
                         help="不渲染游戏画面，只打印数值结果")
     parser.add_argument("--greedy", action="store_true", default=True,
                         help="是否使用贪心策略选择动作（默认 True）")
+    parser.add_argument("--remote", action="store_true", default=False,
+                        help="从远程目录加载 checkpoint（被 git 提交的）")
     args = parser.parse_args()
 
     # 确定 checkpoint 路径
@@ -137,9 +146,11 @@ def main():
             print(f"错误：checkpoint 文件不存在: {checkpoint_path}")
             sys.exit(1)
     else:
-        checkpoint_path = find_latest_checkpoint(agent_name=args.agent)
+        checkpoint_path = find_latest_checkpoint(agent_name=args.agent, use_remote=args.remote)
 
+    location = "远程" if args.remote else "本地"
     print(f"算法: {args.agent.upper()}")
+    print(f"Checkpoint 位置: {location}")
     print(f"加载 checkpoint: {checkpoint_path}")
 
     # 加载 agent

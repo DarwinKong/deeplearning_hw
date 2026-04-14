@@ -3,12 +3,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Checkpoints (intermediate training artifacts - large binary files)
-# These are saved every 100 training steps and can be regenerated
+# Local checkpoints (not committed to repository)
+checkpoints/*/local/
 *.ckpt
 
 # PyTorch Lightning logs (huge number of event files)
 lightning_logs/
+
+# Old runs directories (will be migrated)
+rl-solitaire/agents/*/runs/
 
 # Logs
 *.log

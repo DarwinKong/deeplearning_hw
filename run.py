@@ -4,6 +4,10 @@ from pytorch_lightning import seed_everything
 import click
 import yaml
 
+# 将 rl-solitaire 目录加入路径（兼容从根目录运行）
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rl-solitaire'))
+
 from env.env import Env
 from utils.tools import strp_datetime, set_up_logger, read_yaml
 from nn.utils import get_network_dir_from_name, get_network_class_from_name
@@ -12,11 +16,16 @@ from agents.utils import get_class_from_name
 
 
 ROOT = "./"
+RL_SOLITAIRE_ROOT = os.path.join(ROOT, "rl-solitaire")
+
+# Checkpoints directory structure
+CHECKPOINTS_BASE_DIR = os.path.join(ROOT, "checkpoints")
+LOCAL_CHECKPOINTS_SUBDIR = "local"
+REMOTE_CHECKPOINTS_SUBDIR = "remote"
 
 RUNS_DIRNAME = "runs"
 RUN_CONFIG_FILENAME = "run_config.yaml"
 LOG_FILENAME = "log.txt"
-CHECKPOINTS_DIRNAME = "checkpoints"
 RESULTS_FILENAME = "agent_results.pickle"
 SEED = 42
 DEFAULT_DISCOUNT_FACTOR = 1.0
@@ -27,17 +36,25 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
               help='Agent name: "actor_critic" (A2C) or "ppo"')
 @click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',
               help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
-def main(agent_name: str, network_name: str = None):
+@click.option('--remote', is_flag=True, default=False,
+              help='Save checkpoints to remote directory (committed to git). Default: save to local directory.')
+def main(agent_name: str, network_name: str = None, remote: bool = False):
     """RL Solitaire 训练入口"""
-    run(agent_name=agent_name, network_name=network_name)
+    run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=remote)
 
 
-def run(agent_name: str, network_name: str = None):
+def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool = False):
     # file paths and dirs
-    agent_dir = os.path.join(ROOT, "agents", agent_name)
+    agent_dir = os.path.join(RL_SOLITAIRE_ROOT, "agents", agent_name)
     run_dirname = strp_datetime(datetime.now())
     run_dir = os.path.join(agent_dir, RUNS_DIRNAME, run_dirname)
-    log_filepath, checkpoints_dir, results_filepath = set_up_files_dirs_and_paths(run_dir)
+    
+    # Setup checkpoints directory based on preference
+    checkpoint_subdir = REMOTE_CHECKPOINTS_SUBDIR if use_remote_checkpoints else LOCAL_CHECKPOINTS_SUBDIR
+    checkpoints_dir = os.path.join(CHECKPOINTS_BASE_DIR, agent_name, checkpoint_subdir)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    
+    log_filepath, results_filepath = set_up_files_dirs_and_paths(run_dir)
     logger = set_up_logger(path=log_filepath)
 
     # trainer config
@@ -57,7 +74,8 @@ def run(agent_name: str, network_name: str = None):
     else:
         network_config_filename = network_name + "_config.yaml"
         network_dir = get_network_dir_from_name(network_name)
-        network_config_filepath = os.path.join(ROOT, network_dir, network_config_filename)
+        # 网络配置文件在 rl-solitaire 目录下
+        network_config_filepath = os.path.join(RL_SOLITAIRE_ROOT, network_dir, network_config_filename)
         network_config_dict = read_yaml(network_config_filepath)
         with open(os.path.join(run_dir, network_config_filename), 'w') as file:
             yaml.safe_dump(network_config_dict, file)
@@ -88,14 +106,13 @@ def run(agent_name: str, network_name: str = None):
     trainer.train()
 
 
-def set_up_files_dirs_and_paths(run_dir: str) -> (str, str, str):
+def set_up_files_dirs_and_paths(run_dir: str) -> (str, str):
     os.makedirs(run_dir, exist_ok=True)
 
     log_filepath = os.path.join(run_dir, LOG_FILENAME)
-    checkpoints_dir = os.path.join(run_dir, CHECKPOINTS_DIRNAME)
     results_filepath = os.path.join(run_dir, RESULTS_FILENAME)
 
-    return log_filepath, checkpoints_dir, results_filepath
+    return log_filepath, results_filepath
 
 
 def get_seed(config_dict: dict) -> int:
@@ -122,6 +139,7 @@ if __name__ == "__main__":
     # 使用方法 1: 命令行运行（推荐）
     #   python run.py -an actor_critic -nn fc_policy_value
     #   python run.py -an ppo -nn fc_policy_value
+    #   python run.py -an ppo --remote  # 保存到远程目录（会被 git 提交）
     #
     # 使用方法 2: 直接修改下面的参数并运行
     #   python run.py
@@ -129,12 +147,13 @@ if __name__ == "__main__":
     # 默认配置（当直接运行时使用）
     network_name = "fc_policy_value"  # 网络架构
     agent_name = 'actor_critic'        # 算法: 'actor_critic' (A2C) 或 'ppo'
+    use_remote = False                 # 是否保存到远程目录
     
     # 如果是通过命令行调用，Click 会处理；否则直接运行
     import sys
     if len(sys.argv) == 1:
         # 没有命令行参数，使用默认配置
-        run(agent_name=agent_name, network_name=network_name)
+        run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=use_remote)
     else:
         # 有命令行参数，使用 Click
         main()
