@@ -1,24 +1,11 @@
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 
-# Local checkpoints (not committed to repository)
-checkpoints/*/local/
-*.ckpt
-
-# PyTorch Lightning logs (huge number of event files)
-lightning_logs/
-
-# Old runs directories (will be migrated)
-# 注意：现在使用 logs/ 目录，不再在 source/agents/*/runs/ 生成文件
-
-# Checkpoints and Logs (all experiments)
-checkpoints-and-logs/
-
-# Old directories (will be removed after migration)
-checkpoints/
-logs/
+# Checkpoints and Logs
+checkpoints-and-logs/local/
+checkpoints-and-logs/remote/*/logs/
 
 # Logs
 *.log
