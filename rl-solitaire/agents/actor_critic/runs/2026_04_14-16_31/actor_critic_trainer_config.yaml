@@ -1,8 +1,0 @@
-batch_size: 32
-log_every: 1
-n_games_eval: 3
-n_games_train: 3
-n_iter: 3
-n_optim_steps: null
-n_steps_update: null
-seed: 42

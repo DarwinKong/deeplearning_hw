@@ -1,27 +1,24 @@
-import os
+﻿import os
 from datetime import datetime
 from pytorch_lightning import seed_everything
 import click
 import yaml
 
-# 将 rl-solitaire 目录加入路径（兼容从根目录运行）
+# 将项目根目录加入路径（兼容从任意位置运行）
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rl-solitaire'))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-from env.env import Env
-from utils.tools import strp_datetime, set_up_logger, read_yaml
-from nn.utils import get_network_dir_from_name, get_network_class_from_name
-from nn.network_config import NetConfig
-from agents.utils import get_class_from_name
+from source.env.env import Env
+from source.utils.tools import strp_datetime, set_up_logger, read_yaml
+from source.utils.path_config import path_config
+from source.nn.utils import get_network_class_from_name
+from source.nn.network_config import NetConfig
+from source.agents.utils import get_class_from_name
 
 
 ROOT = "./"
-RL_SOLITAIRE_ROOT = os.path.join(ROOT, "rl-solitaire")
-
-# Checkpoints directory structure
-CHECKPOINTS_BASE_DIR = os.path.join(ROOT, "checkpoints")
-LOCAL_CHECKPOINTS_SUBDIR = "local"
-REMOTE_CHECKPOINTS_SUBDIR = "remote"
 
 RUNS_DIRNAME = "runs"
 RUN_CONFIG_FILENAME = "run_config.yaml"
@@ -44,24 +41,30 @@ def main(agent_name: str, network_name: str = None, remote: bool = False):
 
 
 def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool = False):
-    # file paths and dirs
-    agent_dir = os.path.join(RL_SOLITAIRE_ROOT, "agents", agent_name)
-    run_dirname = strp_datetime(datetime.now())
-    run_dir = os.path.join(agent_dir, RUNS_DIRNAME, run_dirname)
+    # 生成实验名称和时间戳
+    timestamp = strp_datetime(datetime.now())
+    experiment_name = path_config.get_experiment_name(agent_name, timestamp)
     
-    # Setup checkpoints directory based on preference
-    checkpoint_subdir = REMOTE_CHECKPOINTS_SUBDIR if use_remote_checkpoints else LOCAL_CHECKPOINTS_SUBDIR
-    checkpoints_dir = os.path.join(CHECKPOINTS_BASE_DIR, agent_name, checkpoint_subdir)
+    # 创建所有子目录（local）
+    meta_dir = path_config.get_meta_dir(agent_name, use_remote=False, timestamp=timestamp)
+    logs_dir = path_config.get_logs_dir(agent_name, use_remote=False, timestamp=timestamp)
+    checkpoints_dir = path_config.get_checkpoints_dir(agent_name, use_remote=False, timestamp=timestamp)
+    results_dir = path_config.get_results_dir(agent_name, use_remote=False, timestamp=timestamp)
+    
+    os.makedirs(meta_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
     
-    log_filepath, results_filepath = set_up_files_dirs_and_paths(run_dir)
+    # 日志文件路径
+    log_filepath = os.path.join(logs_dir, LOG_FILENAME)
+    results_filepath = os.path.join(results_dir, RESULTS_FILENAME)
     logger = set_up_logger(path=log_filepath)
 
-    # trainer config
-    trainer_config_filename = f"{agent_name}_trainer_config.yaml"
-    trainer_config_filepath = os.path.join(agent_dir, trainer_config_filename)
+    # trainer config - 从 path_config 读取路径
+    trainer_config_filepath = path_config.get_agent_trainer_config_path(agent_name)
     trainer_config = read_yaml(trainer_config_filepath)
-    with open(os.path.join(run_dir, trainer_config_filename), 'w') as file:
+    with open(os.path.join(meta_dir, os.path.basename(trainer_config_filepath)), 'w') as file:
         yaml.safe_dump(trainer_config, file)
 
     # set seed
@@ -72,12 +75,11 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
     if network_name is None:
         network = None
     else:
-        network_config_filename = network_name + "_config.yaml"
-        network_dir = get_network_dir_from_name(network_name)
-        # 网络配置文件在 rl-solitaire 目录下
-        network_config_filepath = os.path.join(RL_SOLITAIRE_ROOT, network_dir, network_config_filename)
+        # 从 path_config 读取网络配置路径
+        network_config_filepath = path_config.get_nn_config_path(network_name)
         network_config_dict = read_yaml(network_config_filepath)
-        with open(os.path.join(run_dir, network_config_filename), 'w') as file:
+        config_filename = os.path.basename(network_config_filepath)
+        with open(os.path.join(meta_dir, config_filename), 'w') as file:
             yaml.safe_dump(network_config_dict, file)
         network_config = NetConfig(config_dict=network_config_dict)
         network_class = get_network_class_from_name(network_name)
@@ -94,25 +96,27 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
 
     # define trainer
     trainer_class = get_class_from_name(agent_name, class_type="trainer")
-    trainer = trainer_class(env=Env(), agent=agent, agent_results_filepath=results_filepath, log_dir=run_dir,
-                            checkpoints_dir=checkpoints_dir, **trainer_config)
+    trainer = trainer_class(
+        env=Env(), 
+        agent=agent, 
+        agent_results_filepath=results_filepath,
+        log_dir=logs_dir,  # 使用 logs_dir
+        checkpoints_dir=checkpoints_dir,
+        remote_checkpoints_dir=None,  # 不再需要单独的 remote dir
+        meta_dir=meta_dir,
+        results_dir=results_dir,
+        **trainer_config
+    )
 
     # log run parameters
     logger.info(f"---------  Running experiment with agent {agent_name} and network {network_name} ---------")
-    logger.info(f"Saving run results and logs at {run_dir}")
+    logger.info(f"Experiment: {experiment_name}")
+    logger.info(f"Saving run results and logs at {path_config.get_experiment_dir(agent_name, use_remote=False, timestamp=timestamp)}")
     logger.info(f"Running with random seed {seed}")
     logger.info(f"Running with discount factor {discount_factor}")
 
     trainer.train()
 
-
-def set_up_files_dirs_and_paths(run_dir: str) -> (str, str):
-    os.makedirs(run_dir, exist_ok=True)
-
-    log_filepath = os.path.join(run_dir, LOG_FILENAME)
-    results_filepath = os.path.join(run_dir, RESULTS_FILENAME)
-
-    return log_filepath, results_filepath
 
 
 def get_seed(config_dict: dict) -> int:

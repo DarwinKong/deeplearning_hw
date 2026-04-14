@@ -1,4 +1,0 @@
-2026-04-13 15:53:49,307 [INFO ] -- run - run  ---------  Running experiment with agent actor_critic and network fc_policy_value ---------
-2026-04-13 15:53:49,308 [INFO ] -- run - run  Saving run results and logs at ./agents/actor_critic/runs/2026_04_13-15_53
-2026-04-13 15:53:49,308 [INFO ] -- run - run  Running with random seed 42
-2026-04-13 15:53:49,308 [INFO ] -- run - run  Running with discount factor 1.0

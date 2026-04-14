@@ -1,14 +1,15 @@
-"""
+﻿"""
 从已保存的 checkpoint 加载 agent 并运行游戏演示。
 支持 A2C (actor_critic) 和 PPO 两种算法。
 
 用法:
-    python3 play.py                         # 使用最新 checkpoint，渲染游戏画面
-    python3 play.py --agent ppo            # 使用 PPO 算法
-    python3 play.py --no-render             # 不渲染，只打印结果
-    python3 play.py --n-games 5            # 运行 5 局游戏
-    python3 play.py --checkpoint <路径>    # 指定 checkpoint 文件
-    python3 play.py --remote               # 从远程目录加载（被 git 提交的）
+    python3 play.py                                         # 使用最新 checkpoint，渲染游戏画面
+    python3 play.py --agent ppo                            # 使用 PPO 算法
+    python3 play.py --no-render                             # 不渲染，只打印结果
+    python3 play.py --n-games 5                            # 运行 5 局游戏
+    python3 play.py --experiment checkpoints-and-logs/local/A2C_2026_04_14-21_00  # 指定实验目录
+    python3 play.py --checkpoint <路径>                    # 指定 checkpoint 文件
+    python3 play.py --remote                               # 从远程目录加载（被 git 提交的）
 """
 import os
 import sys
@@ -16,8 +17,10 @@ import glob
 import argparse
 import numpy as np
 
-# 将 rl-solitaire 目录加入路径（兼容从根目录运行）
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rl-solitaire'))
+# 将项目根目录加入路径（兼容从任意位置运行）
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # 跨平台兼容的 matplotlib backend 设置
 import platform
@@ -31,18 +34,17 @@ else:  # Linux
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from env.env import Env
-from nn.network_config import NetConfig
-from nn.policy_value.fully_connected import FCPolicyValueNet
-from agents.actor_critic.actor_critic_agent import ActorCriticAgent
-from agents.ppo.ppo_agent import PPOAgent
-from utils.tools import read_yaml
+from source.env.env import Env
+from source.nn.network_config import NetConfig
+from source.nn.policy_value.fully_connected import FCPolicyValueNet
+from source.agents.actor_critic.actor_critic_agent import ActorCriticAgent
+from source.agents.ppo.ppo_agent import PPOAgent
+from source.utils.tools import read_yaml
+from source.utils.path_config import path_config
 
 
-# Checkpoints directory structure
-CHECKPOINTS_BASE_DIR = "./checkpoints"
-LOCAL_CHECKPOINTS_SUBDIR = "local"
-REMOTE_CHECKPOINTS_SUBDIR = "remote"
+# Checkpoints directory structure - 从 path_config 读取
+# 不再硬编码，统一由 path_config 管理
 
 # 支持的算法及其配置
 SUPPORTED_AGENTS = {
@@ -56,16 +58,23 @@ SUPPORTED_AGENTS = {
     }
 }
 
-NETWORK_CONFIG_PATH = "./rl-solitaire/nn/policy_value/fc_policy_value_config.yaml"
+# 默认网络配置路径 - 从 path_config 读取
+NETWORK_CONFIG_PATH = path_config.get_nn_config_path('fc_policy_value')
 
 
-def find_latest_checkpoint(agent_name: str = 'actor_critic', use_remote: bool = False) -> str:
+def find_latest_checkpoint(agent_name: str = 'actor_critic', use_remote: bool = False, experiment_dir: str = None) -> str:
     """在指定算法的 checkpoints 目录中找到最新的 checkpoint 文件"""
     if agent_name not in SUPPORTED_AGENTS:
         raise ValueError(f"不支持的算法: {agent_name}。支持的算法: {list(SUPPORTED_AGENTS.keys())}")
     
-    checkpoint_subdir = REMOTE_CHECKPOINTS_SUBDIR if use_remote else LOCAL_CHECKPOINTS_SUBDIR
-    checkpoints_dir = os.path.join(CHECKPOINTS_BASE_DIR, agent_name, checkpoint_subdir)
+    # 如果指定了实验目录，直接使用该目录下的 checkpoints
+    if experiment_dir:
+        if not os.path.exists(experiment_dir):
+            raise FileNotFoundError(f"实验目录不存在: {experiment_dir}")
+        checkpoints_dir = os.path.join(experiment_dir, "checkpoints")
+    else:
+        # 从 path_config 获取 checkpoints 目录
+        checkpoints_dir = path_config.get_checkpoints_dir(agent_name, use_remote=use_remote)
     
     pattern = os.path.join(checkpoints_dir, "*.ckpt")
     checkpoints = glob.glob(pattern)
@@ -86,8 +95,10 @@ def load_agent(checkpoint_path: str, agent_name: str = 'actor_critic'):
     base_agent_name = SUPPORTED_AGENTS[agent_name]['agent_name']
     
     # 优先从 checkpoint 所在目录读取 network config，否则用默认配置
-    run_dir = os.path.dirname(os.path.dirname(checkpoint_path))
-    local_config = glob.glob(os.path.join(run_dir, "fc_policy_value_config.yaml"))
+    # 新结构: checkpoints-and-logs/local/{AGENT}_{timestamp}/checkpoints/*.ckpt
+    # 需要向上两级到实验根目录，然后进入 meta/
+    experiment_dir = os.path.dirname(os.path.dirname(checkpoint_path))
+    local_config = glob.glob(os.path.join(experiment_dir, "meta", "*policy-value-config.yaml"))
     config_path = local_config[0] if local_config else NETWORK_CONFIG_PATH
 
     network_config_dict = read_yaml(config_path)
@@ -127,6 +138,8 @@ def main():
     parser.add_argument("--agent", type=str, default='actor_critic',
                         choices=['actor_critic', 'ppo'],
                         help="使用的算法: actor_critic (A2C) 或 ppo（默认 actor_critic）")
+    parser.add_argument("--experiment", type=str, default=None,
+                        help="实验目录路径（例如: checkpoints-and-logs/local/A2C_2026_04_14-21_00）")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="checkpoint 文件路径（不指定则自动使用最新）")
     parser.add_argument("--n-games", type=int, default=1,
@@ -146,9 +159,13 @@ def main():
             print(f"错误：checkpoint 文件不存在: {checkpoint_path}")
             sys.exit(1)
     else:
-        checkpoint_path = find_latest_checkpoint(agent_name=args.agent, use_remote=args.remote)
+        checkpoint_path = find_latest_checkpoint(
+            agent_name=args.agent, 
+            use_remote=args.remote,
+            experiment_dir=args.experiment
+        )
 
-    location = "远程" if args.remote else "本地"
+    location = "远程" if args.remote else ("实验目录" if args.experiment else "本地")
     print(f"算法: {args.agent.upper()}")
     print(f"Checkpoint 位置: {location}")
     print(f"加载 checkpoint: {checkpoint_path}")

@@ -11,7 +11,14 @@ checkpoints/*/local/
 lightning_logs/
 
 # Old runs directories (will be migrated)
-rl-solitaire/agents/*/runs/
+# 注意：现在使用 logs/ 目录，不再在 source/agents/*/runs/ 生成文件
+
+# Checkpoints and Logs (all experiments)
+checkpoints-and-logs/
+
+# Old directories (will be removed after migration)
+checkpoints/
+logs/
 
 # Logs
 *.log

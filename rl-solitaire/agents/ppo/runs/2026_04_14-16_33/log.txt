@@ -1,7 +1,0 @@
-2026-04-14 16:33:03,745 [INFO ] -- run - run  ---------  Running experiment with agent ppo and network fc_policy_value ---------
-2026-04-14 16:33:03,745 [INFO ] -- run - run  Saving run results and logs at ./agents\ppo\runs\2026_04_14-16_33
-2026-04-14 16:33:03,745 [INFO ] -- run - run  Running with random seed 42
-2026-04-14 16:33:03,745 [INFO ] -- run - run  Running with discount factor 1.0
-2026-04-14 16:33:04,037 [INFO ] -- ppo_trainer - log_evaluation_results  Iteration 0: mean reward: 0.839, mean pegs left: 6.00
-2026-04-14 16:33:04,253 [INFO ] -- ppo_trainer - log_evaluation_results  Iteration 1: mean reward: 0.796, mean pegs left: 7.33
-2026-04-14 16:33:04,491 [INFO ] -- ppo_trainer - log_evaluation_results  Iteration 2: mean reward: 0.785, mean pegs left: 7.67
