@@ -138,8 +138,7 @@ def play(experiment: str = None,
          checkpoint: str = None,
          n_games: int = 1,
          render: bool = True,
-         greedy: bool = True,
-         remote: bool = False):
+         greedy: bool = True):
     """
     从 checkpoint 加载 Agent 并运行游戏（脚本模式）
     
@@ -150,7 +149,6 @@ def play(experiment: str = None,
         n_games: 游戏局数
         render: 是否渲染游戏画面
         greedy: 是否使用贪心策略
-        remote: 是否从远程目录加载
     """
     # 确定 checkpoint 路径
     if checkpoint:
@@ -161,11 +159,11 @@ def play(experiment: str = None,
     else:
         checkpoint_path = find_latest_checkpoint(
             agent_name=agent, 
-            use_remote=remote,
+            use_remote=False,  # 不再需要 remote 参数
             experiment_dir=experiment
         )
 
-    location = "远程" if remote else ("实验目录" if experiment else "本地")
+    location = "实验目录" if experiment else "本地"
     print(f"算法: {agent.upper()}")
     print(f"Checkpoint 位置: {location}")
     print(f"加载 checkpoint: {checkpoint_path}")
@@ -193,8 +191,6 @@ def main():
                         help="不渲染游戏画面，只打印数值结果")
     parser.add_argument("--greedy", action="store_true", default=True,
                         help="是否使用贪心策略选择动作（默认 True）")
-    parser.add_argument("--remote", action="store_true", default=False,
-                        help="从远程目录加载 checkpoint（被 git 提交的）")
     args = parser.parse_args()
 
     # 调用 play 函数
@@ -204,8 +200,7 @@ def main():
         checkpoint=args.checkpoint,
         n_games=args.n_games,
         render=not args.no_render,
-        greedy=args.greedy,
-        remote=args.remote
+        greedy=args.greedy
     )
 
 
