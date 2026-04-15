@@ -1,0 +1,45 @@
+{
+  "total_iterations": 200,
+  "best_training": {
+    "iteration": 41,
+    "mean_reward": 0.8180645161290317,
+    "mean_pegs_left": 6.64
+  },
+  "latest_training": {
+    "iteration": 199,
+    "mean_reward": 0.7987096774193542,
+    "std_reward": 0.05681816479046188,
+    "min_reward": 0.7418915126288923,
+    "max_reward": 0.855527842209816,
+    "mean_pegs_left": 7.24,
+    "timestamp": "2026-04-14T21:04:50.928300"
+  },
+  "training_progress": {
+    "reward_improvement": {
+      "first": 0.7864516129032252,
+      "last": 0.7987096774193542,
+      "absolute_improvement": 0.012258064516128986,
+      "percentage_improvement": 1.558654634946673
+    },
+    "pegs_reduction": {
+      "first": 7.62,
+      "last": 7.24,
+      "absolute_improvement": 0.3799999999999999,
+      "percentage_improvement": 4.986876640419946
+    }
+  },
+  "best_evaluation": {
+    "iteration": 41,
+    "eval_mean_reward": 0.8180645161290317,
+    "greedy_reward": 0.9032258064516123
+  },
+  "latest_evaluation": {
+    "iteration": 199,
+    "eval_mean_reward": 0.7987096774193542,
+    "eval_std_reward": 0.05681816479046188,
+    "eval_mean_pegs_left": 7.24,
+    "greedy_reward": 0.8387096774193543,
+    "greedy_pegs_left": 6.0,
+    "timestamp": "2026-04-14T21:04:50.928300"
+  }
+}

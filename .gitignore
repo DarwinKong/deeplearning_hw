@@ -1,0 +1,25 @@
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Checkpoints and Logs
+checkpoints-and-logs/local/
+checkpoints-and-logs/remote/*/logs/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.venv/
+env/
+env.bak/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

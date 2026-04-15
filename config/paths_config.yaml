@@ -1,0 +1,31 @@
+# 项目路径配置
+# 所有模块应从此文件读取路径，避免硬编码
+
+# Checkpoints 和 Logs 统一目录结构
+checkpoints_and_logs:
+  base_dir: "./checkpoints-and-logs"
+  local_subdir: "local"
+  remote_subdir: "remote"
+  
+  # 子目录结构（在每个实验目录下）
+  meta_dir: "meta"                    # 配置文件副本
+  logs_dir: "logs"                    # 日志文件
+  checkpoints_dir: "checkpoints"      # 中间 checkpoints
+  results_dir: "results"              # 训练结果（流式写入）
+  
+  # 完整路径模板（程序运行时动态构建）
+  # {base_dir}/{local|remote}/{agent_name}_{timestamp}/{meta|logs|checkpoints|results}/
+
+# 源代码目录
+source:
+  base_dir: "./source"
+  agents_dir: "agents"
+  env_dir: "env"
+  nn_dir: "nn"
+  utils_dir: "utils"
+
+# 配置文件目录
+config:
+  base_dir: "./config"
+  agent_trainer_dir: "agent-trainer"
+  nn_dir: "nn"

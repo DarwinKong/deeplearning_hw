@@ -1,7 +1,0 @@
-2026-04-13 16:09:31,367 [INFO ] -- run - run  ---------  Running experiment with agent actor_critic and network fc_policy_value ---------
-2026-04-13 16:09:31,367 [INFO ] -- run - run  Saving run results and logs at ./agents/actor_critic/runs/2026_04_13-16_09
-2026-04-13 16:09:31,367 [INFO ] -- run - run  Running with random seed 42
-2026-04-13 16:09:31,367 [INFO ] -- run - run  Running with discount factor 1.0
-2026-04-13 16:09:36,750 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 0: mean reward: 0.786, mean pegs left: 7.62
-2026-04-13 16:09:48,223 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 10: mean reward: 0.805, mean pegs left: 7.04
-2026-04-13 16:10:01,333 [INFO ] -- actor_critic_trainer - log_evaluation_results  Iteration 20: mean reward: 0.777, mean pegs left: 7.90
