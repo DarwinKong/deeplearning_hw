@@ -26,7 +26,10 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
 # @click.option('-an', '--agent_name', required=True, type=click.STRING, help='The name of the agent to train')
 # @click.option('-nn', '--network_name', required=False, type=click.STRING, default=None,
 #               help='The name of the agent to train')
-def run(agent_name: str, network_name: str = None, checkpoint_path: str = None):
+def run(agent_name: str,
+        network_name: str = None,
+        checkpoint_path: str = None,
+        trainer_config_path: str = None):
     # file paths and dirs
     agent_dir = os.path.join(ROOT, "agents", agent_name)
 
@@ -46,11 +49,18 @@ def run(agent_name: str, network_name: str = None, checkpoint_path: str = None):
     logger = set_up_logger(path=log_filepath)
 
     # trainer config
-    trainer_config_filename = f"{agent_name}_trainer_config.yaml"
-    trainer_config_filepath = os.path.join(agent_dir, trainer_config_filename)
+    trainer_config_filename = trainer_config_path or f"{agent_name}_trainer_config.yaml"
+    saved_trainer_config_filename = os.path.basename(trainer_config_filename)
+    if os.path.isabs(trainer_config_filename):
+        trainer_config_filepath = trainer_config_filename
+    else:
+        trainer_config_filepath = os.path.join(ROOT, trainer_config_filename)
+        if not os.path.exists(trainer_config_filepath):
+            trainer_config_filepath = os.path.join(agent_dir, trainer_config_filename)
     trainer_config = read_yaml(trainer_config_filepath)
-    with open(os.path.join(run_dir, trainer_config_filename), 'w') as file:
+    with open(os.path.join(run_dir, saved_trainer_config_filename), 'w') as file:
         yaml.safe_dump(trainer_config, file)
+    env_config = trainer_config.pop("env", {}) or {}
 
     # set seed
     seed = get_seed(trainer_config)
@@ -87,7 +97,7 @@ def run(agent_name: str, network_name: str = None, checkpoint_path: str = None):
 
     # define trainer
     trainer_class = get_class_from_name(agent_name, class_type="trainer")
-    trainer = trainer_class(env=Env(), agent=agent, agent_results_filepath=results_filepath, log_dir=run_dir,
+    trainer = trainer_class(env=Env(**env_config), agent=agent, agent_results_filepath=results_filepath, log_dir=run_dir,
                             checkpoints_dir=checkpoints_dir, **trainer_config)
 
     # log run parameters
@@ -95,6 +105,7 @@ def run(agent_name: str, network_name: str = None, checkpoint_path: str = None):
     logger.info(f"Saving run results and logs at {run_dir}")
     logger.info(f"Running with random seed {seed}")
     logger.info(f"Running with discount factor {discount_factor}")
+    logger.info(f"Environment reward config: {env_config if env_config else {'reward_mode': 'default'}}")
 
     trainer.train()
 
@@ -139,6 +150,11 @@ if __name__ == "__main__":
                         help="Name of the network to use (e.g. fc_policy_value, conv_policy_value)")
     parser.add_argument("--checkpoint_path", type=str, default=None,
                         help="Path to a .ckpt file to resume training from. If not provided, starts from scratch.")
+    parser.add_argument("--trainer_config", type=str, default=None,
+                        help="Optional path to a trainer config yaml. Supports reward experiment-specific configs.")
     args = parser.parse_args()
 
-    run(agent_name=args.agent_name, network_name=args.network_name, checkpoint_path=args.checkpoint_path)
+    run(agent_name=args.agent_name,
+        network_name=args.network_name,
+        checkpoint_path=args.checkpoint_path,
+        trainer_config_path=args.trainer_config)

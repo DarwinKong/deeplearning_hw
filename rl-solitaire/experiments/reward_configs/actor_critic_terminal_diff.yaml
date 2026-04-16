@@ -1,6 +1,6 @@
 batch_size: 64
 env:
-  reward_mode: default
+  reward_mode: terminal_diff
   mobility_alpha: 0.1
   potential_alpha: 0.1
   potential_gamma: 1.0

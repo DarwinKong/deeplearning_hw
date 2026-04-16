@@ -143,3 +143,12 @@ class ActorCriticTrainer(BaseTrainer):
         self.trainer.save_checkpoint(
             os.path.join(self.checkpoints_dir,
                          f'epoch={self.agent.network.current_epoch}_step={self.agent.network.global_step}.ckpt'))
+
+    def save_best_agent(self):
+        best_checkpoint_path = os.path.join(self.checkpoints_dir, 'best_mean_pegs_left.ckpt')
+        self.trainer.save_checkpoint(best_checkpoint_path)
+        logger.info("Saved best checkpoint at iteration {:,}: mean reward {:.3f}, mean pegs left {:.2f}".format(
+            self.current_iteration,
+            self.best_mean_reward,
+            self.best_mean_pegs_left
+        ))

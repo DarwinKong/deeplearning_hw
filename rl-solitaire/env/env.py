@@ -20,6 +20,9 @@ ACTIONS = [(pos, move) for pos in GRID for move in MOVES]
 N_ACTIONS = len(ACTIONS)  # = len(GRID) * len(MOVES) = 33 * 4 = 132
 
 N_STATE_CHANNELS = 3
+DEFAULT_STEP_REWARD = 1 / (N_PEGS - 1)
+SUPPORTED_REWARD_MODES = {"default", "mobility", "potential", "terminal_diff"}
+SUPPORTED_POTENTIAL_FUNCTIONS = {"remaining_pegs", "dispersion", "combined"}
 
 
 def _compute_out_of_border_actions(grid):
@@ -96,7 +99,16 @@ class Env(object):
     N_MAX_STEPS = N_PEGS
     _BOARD_MASK = _get_board_mask()
 
-    def __init__(self, verbose=False, init_fig=False, interactive_plot=False):
+    def __init__(self,
+                 verbose=False,
+                 init_fig=False,
+                 interactive_plot=False,
+                 reward_mode="default",
+                 mobility_alpha=0.1,
+                 potential_alpha=0.1,
+                 potential_gamma=1.0,
+                 potential_function="dispersion",
+                 terminal_penalty_scale=1.0):
         '''
         Instantiates an object of the class Env by initializing the number of pegs in the game as well as their
         positions on the grid.
@@ -122,6 +134,19 @@ class Env(object):
         else:
             self.interactive_plot = False
         self.verbose = verbose
+        if reward_mode not in SUPPORTED_REWARD_MODES:
+            raise ValueError(f"Unsupported reward_mode {reward_mode}. Supported modes: {SUPPORTED_REWARD_MODES}")
+        if potential_function not in SUPPORTED_POTENTIAL_FUNCTIONS:
+            raise ValueError(
+                f"Unsupported potential_function {potential_function}. "
+                f"Supported functions: {SUPPORTED_POTENTIAL_FUNCTIONS}"
+            )
+        self.reward_mode = reward_mode
+        self.mobility_alpha = mobility_alpha
+        self.potential_alpha = potential_alpha
+        self.potential_gamma = potential_gamma
+        self.potential_function = potential_function
+        self.terminal_penalty_scale = terminal_penalty_scale
 
     def _init_pegs(self):
         '''
@@ -169,6 +194,9 @@ class Env(object):
         out : tuple (reward, next_state, end)
             reward is a float, next_state is a 2d-array, and end is a bool.
         '''
+        mobility_before = self.count_feasible_actions()
+        potential_before = self.get_potential()
+
         # update state of the env
         pos_id, move_id = action
         pos = GRID[pos_id]
@@ -179,23 +207,22 @@ class Env(object):
         self.pegs[(x + 2 * d_x, y + 2 * d_y)] = 1  # initial peg ends up in new position
         self.n_pegs -= 1  # adjacent peg was removed
 
-        # check for game end
+        end = False
+        solved = False
         if self.n_pegs == 1:
+            solved = True
+            end = True
             if self.verbose:
                 print('End of the game, you solved the puzzle !')
-            return 1, self.state, True
+        elif self.count_feasible_actions() == 0:
+            end = True
+            if self.verbose:
+                print('End of the game. You lost : {} pegs remaining'.format(self.n_pegs))
 
-        else:
-            # compute possible next moves
-            if np.sum(self.feasible_actions) == 0:  # no more actions available
-                if self.verbose:
-                    print('End of the game. You lost : {} pegs remaining'.format(self.n_pegs))
-                # return 0., self.state, True  # return 0.0 reward if the game stops but we haven't finished it
-                return 1 / (N_PEGS - 1), self.state, True
-            else:
-                # reward is an increasing function of the percentage of the game achieved
-                # return ((N_PEGS - self.n_pegs) / (N_PEGS-1)) ** 2, self.state, False
-                return 1 / (N_PEGS - 1), self.state, False
+        mobility_after = self.count_feasible_actions()
+        potential_after = self.get_potential()
+        reward = self._compute_reward(mobility_before, mobility_after, potential_before, potential_after, end, solved)
+        return reward, self.state, end
 
     @staticmethod
     def convert_action_id_to_action(action_index):
@@ -233,6 +260,66 @@ class Env(object):
         action_jump_feasible_np = np.vectorize(self.action_jump_feasible)
         feasible_actions[feasible[:, 0], feasible[:, 1]] = action_jump_feasible_np(feasible[:, 0], feasible[:, 1])
         return feasible_actions
+
+    def count_feasible_actions(self) -> int:
+        return int(np.sum(self.feasible_actions))
+
+    def get_potential(self) -> float:
+        remaining_progress = (N_PEGS - self.n_pegs) / (N_PEGS - 1)
+        remaining_penalty = self.n_pegs / N_PEGS
+        dispersion = self._peg_dispersion()
+
+        if self.potential_function == "remaining_pegs":
+            return remaining_progress
+        if self.potential_function == "dispersion":
+            return -dispersion
+        if self.potential_function == "combined":
+            return remaining_progress - remaining_penalty - dispersion
+        raise ValueError(f"Unsupported potential function {self.potential_function}")
+
+    def _compute_reward(self,
+                        mobility_before: int,
+                        mobility_after: int,
+                        potential_before: float,
+                        potential_after: float,
+                        end: bool,
+                        solved: bool) -> float:
+        reward = self._base_reward(end=end, solved=solved)
+
+        if self.reward_mode == "default":
+            return reward
+        if self.reward_mode == "mobility":
+            mobility_delta = (mobility_after - mobility_before) / N_ACTIONS
+            return reward + self.mobility_alpha * mobility_delta
+        if self.reward_mode == "potential":
+            shaping = self.potential_gamma * potential_after - potential_before
+            return reward + self.potential_alpha * shaping
+        if self.reward_mode == "terminal_diff":
+            return self._terminal_diff_reward(end=end, solved=solved, base_reward=reward)
+        raise ValueError(f"Unsupported reward mode {self.reward_mode}")
+
+    @staticmethod
+    def _base_reward(end: bool, solved: bool) -> float:
+        if solved:
+            return 1.0
+        return DEFAULT_STEP_REWARD
+
+    def _terminal_diff_reward(self, end: bool, solved: bool, base_reward: float) -> float:
+        if solved:
+            return 1.0
+        if not end:
+            return base_reward
+        terminal_score = (N_PEGS - self.n_pegs) / (N_PEGS - 1)
+        return self.terminal_penalty_scale * terminal_score
+
+    def _peg_dispersion(self) -> float:
+        peg_positions = np.array([pos for pos, value in self.pegs.items() if value == 1], dtype=np.float32)
+        if len(peg_positions) <= 1:
+            return 0.0
+        center = np.mean(peg_positions, axis=0, keepdims=True)
+        sq_distances = np.sum((peg_positions - center) ** 2, axis=1)
+        max_sq_distance = 18.0  # max squared distance on the board from the center is 3^2 + 3^2
+        return float(np.mean(sq_distances) / max_sq_distance)
 
     def action_jump_feasible(self, pos_index, move_id):
         '''

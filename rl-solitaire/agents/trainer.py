@@ -31,6 +31,8 @@ class BaseTrainer:
         self._name = "BaseTrainer"
         self.current_iteration = 0
         self.agent_results_file = open(agent_results_filepath, "wb+")  # open log file to write in during evaluation
+        self.best_mean_pegs_left = np.inf
+        self.best_mean_reward = -np.inf
 
     @property
     def name(self):
@@ -92,7 +94,10 @@ class BaseTrainer:
         self.agent.set_evaluation_mode()
         rewards, pegs_left = self.agent.evaluate(self.env, self.n_games_eval, greedy=False)
         greedy_reward, greedy_pegs_left = self.agent.evaluate(self.env, greedy=True)  # only 1 game of greedy evaluation
+        mean_reward = float(np.mean(rewards))
+        mean_pegs_left = float(np.mean(pegs_left))
         self.log_evaluation_results(rewards, pegs_left, greedy_reward[0], greedy_pegs_left[0])
+        self._maybe_save_best_agent(mean_reward, mean_pegs_left)
         pickle.dump({"rewards": rewards, "pegs_left": pegs_left}, self.agent_results_file)
 
     def log_evaluation_results(self, rewards: list[float], pegs_left: list[float], greedy_reward: float,
@@ -105,4 +110,14 @@ class BaseTrainer:
                                                                                              mean_pegs_left))
 
     def save_agent(self):
+        pass
+
+    def _maybe_save_best_agent(self, mean_reward: float, mean_pegs_left: float):
+        should_save = mean_pegs_left < self.best_mean_pegs_left
+        if should_save:
+            self.best_mean_pegs_left = mean_pegs_left
+            self.best_mean_reward = mean_reward
+            self.save_best_agent()
+
+    def save_best_agent(self):
         pass

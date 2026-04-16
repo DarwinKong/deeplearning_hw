@@ -1,7 +1,7 @@
 batch_size: 64
 env:
-  reward_mode: default
-  mobility_alpha: 0.1
+  reward_mode: mobility
+  mobility_alpha: 0.05
   potential_alpha: 0.1
   potential_gamma: 1.0
   potential_function: dispersion
