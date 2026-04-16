@@ -16,10 +16,10 @@ PPO (Proximal Policy Optimization) 算法实现
 import torch
 import torch.nn.functional as F
 from typing import Dict
-from .base_algorithm import BaseAlgorithm
+from .base_agent import BaseAgent
 
 
-class PPOAlgorithm(BaseAlgorithm):
+class PPOAgent(BaseAgent):
     """
     PPO算法实现（带Clip）
     

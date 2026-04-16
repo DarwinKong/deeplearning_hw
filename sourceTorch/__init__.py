@@ -15,22 +15,22 @@
 
 所有工程优化（向量化、GPU加速、内存管理）已完成。
 """
-from .agent import A2CAlgorithm, PPOAlgorithm, BaseAlgorithm
+from .agent import A2CAgent, PPOAgent, BaseAgent
 from .trainers import BatchedGPUTrainer
-from .env import Env
+from .env import BatchedGPUEnv
 
 __version__ = "2.0.0"
 __author__ = "Grand-Final Team"
 
 __all__ = [
     # 算法层（算法侧关注）
-    'BaseAlgorithm',
-    'A2CAlgorithm', 
-    'PPOAlgorithm',
+    'BaseAgent',
+    'A2CAgent', 
+    'PPOAgent',
     
     # 训练器（工程侧已优化）
     'BatchedGPUTrainer',
     
     # 环境（工程侧已优化）
-    'Env'
+    'BatchedGPUEnv'
 ]

@@ -15,7 +15,7 @@ import torch.optim as optim
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from sourceTorch.agent.base_algorithm import BaseAlgorithm
+from sourceTorch.agent.base_agent import BaseAgent
 from sourceTorch.env.batched_gpu_env import BatchedGPUEnv
 from sourceTorch.utils.gpu_training_monitor import GPUTrainingMonitor
 
@@ -38,7 +38,7 @@ class BatchedGPUTrainer:
     
     def __init__(self,
                  n_envs=64,
-                 algorithm: BaseAlgorithm = None,
+                 algorithm: BaseAgent = None,
                  n_iter=200,
                  n_steps_per_env=32,
                  agent_results_filepath="results/batched.pt",

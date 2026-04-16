@@ -16,7 +16,7 @@ import torch
 from typing import Dict, Any
 
 
-class BaseAlgorithm(ABC):
+class BaseAgent(ABC):
     """
     强化学习算法基类
     

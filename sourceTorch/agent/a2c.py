@@ -14,10 +14,10 @@ A2C (Advantage Actor-Critic) 算法实现
 import torch
 import torch.nn.functional as F
 from typing import Dict
-from .base_algorithm import BaseAlgorithm
+from .base_agent import BaseAgent
 
 
-class A2CAlgorithm(BaseAlgorithm):
+class A2CAgent(BaseAgent):
     """
     A2C算法实现
     

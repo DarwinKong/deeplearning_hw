@@ -6,15 +6,37 @@
 2. 所有数据保持在 GPU 上，零 CPU-GPU 传输
 3. 预计算所有常量，避免重复计算
 4. 使用 gather/scatter 进行高效的状态更新
+
+接口说明：
+    reset() -> Dict[str, torch.Tensor]
+        重置所有环境
+        返回: {
+            'states': Tensor (n_envs, 7, 7, 3),  # 初始状态
+            'feasible_actions': Tensor (n_envs, 132)  # 可行动作掩码
+        }
+    
+    step(actions: Tensor) -> Dict[str, torch.Tensor]
+        执行批量动作
+        参数: actions - Tensor (n_envs,), 每个环境的动作索引 [0, 131]
+        返回: {
+            'rewards': Tensor (n_envs,),  # 每步奖励
+            'states': Tensor (n_envs, 7, 7, 3),  # 新状态
+            'dones': Tensor (n_envs,),  # 终止标志（布尔）
+            'feasible_actions': Tensor (n_envs, 132)  # 新的可行动作掩码
+        }
 """
 import torch
 import torch.nn as nn
+from typing import Dict
 
 # 从原始 env 导入常量
 from source.env.env import (
     GRID, POS_TO_INDICES, N_PEGS, MOVES, ACTIONS, 
     N_ACTIONS, N_STATE_CHANNELS, OUT_OF_BORDER_ACTIONS
 )
+
+# 导入奖励函数
+from .reward import compute_batched_rewards
 
 # 预计算常量（在 CPU 上，之后移到 GPU）
 GRID_TENSOR = torch.tensor(GRID, dtype=torch.long)  # (33, 2)
@@ -53,13 +75,29 @@ OUT_OF_BORDER_MASK = torch.from_numpy(OUT_OF_BORDER_ACTIONS)  # (33, 4)
 
 class BatchedGPUEnv(nn.Module):
     """
-    批量 GPU 环境
+    批量 GPU 环境 - 同时运行多个游戏实例
     
-    同时运行 n_envs 个游戏实例，所有计算在 GPU 上完成。
+    核心特性：
+    - 并行执行 n_envs 个独立的游戏实例
+    - 所有数据保持在 GPU，零 CPU-GPU 传输
+    - 预计算常量，运行时 O(1) 查表
+    - 向量化状态更新，避免 Python 循环
     
-    Args:
-        n_envs: 并行环境数量（建议 64-256）
-        device: GPU 设备
+    Attributes:
+        n_envs (int): 并行环境数量
+        device (torch.device): GPU 设备
+        pegs (torch.Tensor): 棋子状态，形状 (n_envs, 33)，值域 [0, 1]
+        n_pegs (torch.Tensor): 每环境的棋子数，形状 (n_envs,)，值域 [1, 32]
+        done (torch.Tensor): 终止标志，形状 (n_envs,)，布尔类型
+        total_reward (torch.Tensor): 累计奖励，形状 (n_envs,)
+    
+    Example:
+        >>> env = BatchedGPUEnv(n_envs=64, device='cuda')
+        >>> obs = env.reset()
+        >>> print(obs['states'].shape)  # torch.Size([64, 7, 7, 3])
+        >>> actions = torch.randint(0, 132, (64,), device='cuda')
+        >>> result = env.step(actions)
+        >>> print(result['rewards'].shape)  # torch.Size([64])
     """
     
     def __init__(self, n_envs=64, device='cuda'):
@@ -85,12 +123,27 @@ class BatchedGPUEnv(nn.Module):
         
         self.reset()
     
-    def reset(self, mask=None):
+    def reset(self, mask: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         """
-        重置环境
+        重置所有环境到初始状态
         
         Args:
-            mask: 可选，指定哪些环境需要重置 (n_envs,) bool tensor
+            mask (torch.Tensor, optional): 指定哪些环境需要重置
+                - 形状: (n_envs,)
+                - 类型: torch.bool
+                - 默认: None（重置所有环境）
+        
+        Returns:
+            Dict[str, torch.Tensor]: 初始观测数据
+                - 'states': torch.Tensor, 形状 (n_envs, 7, 7, 3), dtype=torch.float32
+                  棋盘状态张量，3个通道分别为：棋子存在性、剩余比例、已移除比例
+                - 'feasible_actions': torch.Tensor, 形状 (n_envs, 132), dtype=torch.float32
+                  可行动作掩码，1表示合法动作，0表示非法动作
+        
+        Example:
+            >>> obs = env.reset()
+            >>> print(obs['states'].shape)  # (64, 7, 7, 3)
+            >>> print(obs['feasible_actions'].shape)  # (64, 132)
         """
         if mask is None:
             mask = torch.ones(self.n_envs, dtype=torch.bool, device=self.device)
@@ -163,18 +216,35 @@ class BatchedGPUEnv(nn.Module):
         
         return mask
     
-    def step(self, actions):
+    def step(self, actions: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        执行动作 batch
+        批量执行动作
         
         Args:
-            actions: (n_envs,) long tensor，每个元素是动作 ID (0-131)
+            actions (torch.Tensor): 动作索引张量
+                - 形状: (n_envs,)
+                - 类型: torch.long
+                - 值域: [0, 131]，每个元素对应一个合法的动作 ID
         
         Returns:
-            rewards: (n_envs,) float tensor
-            states: (n_envs, 7, 7, 3) tensor
-            dones: (n_envs,) bool tensor
-            infos: dict
+            Dict[str, torch.Tensor]: 环境响应数据
+                - 'rewards': torch.Tensor, 形状 (n_envs,), dtype=torch.float32
+                  每步奖励，成功移除棋子为 1/31 ≈ 0.032，终止状态根据剩余棋子数计算
+                - 'states': torch.Tensor, 形状 (n_envs, 7, 7, 3), dtype=torch.float32
+                  执行动作后的新状态
+                - 'dones': torch.Tensor, 形状 (n_envs,), dtype=torch.bool
+                  终止标志，True 表示该环境已结束（胜利或失败）
+                - 'feasible_actions': torch.Tensor, 形状 (n_envs, 132), dtype=torch.float32
+                  新的可行动作掩码
+                - 'infos': Dict
+                  - 'n_pegs': torch.Tensor, 形状 (n_envs,), 当前棋子数
+                  - 'total_reward': torch.Tensor, 形状 (n_envs,), 累计奖励
+        
+        Example:
+            >>> actions = torch.tensor([0, 5, 10, ...], device='cuda')  # 64个动作
+            >>> result = env.step(actions)
+            >>> print(result['rewards'])  # tensor([0.0323, 0.0323, ...])
+            >>> print(result['dones'])  # tensor([False, False, ...])
         """
         n = self.n_envs
         
@@ -195,14 +265,9 @@ class BatchedGPUEnv(nn.Module):
         self.pegs[env_indices, target_indices] = 1.0
         
         # 更新棋子计数
+        n_pegs_before = self.n_pegs.clone()
         self.n_pegs -= 1
-        
-        # 计算奖励
-        rewards = torch.where(
-            self.n_pegs == 1,
-            torch.ones(n, device=self.device),  # 胜利
-            torch.ones(n, device=self.device) / (N_PEGS - 1)  # 普通步骤
-        )
+        n_pegs_after = self.n_pegs.clone()
         
         # 检查是否结束
         done_win = (self.n_pegs == 1)
@@ -213,6 +278,14 @@ class BatchedGPUEnv(nn.Module):
         done_no_moves = ~has_feasible
         
         self.done = done_win | done_no_moves
+        
+        # 计算奖励（使用 reward 模块）
+        rewards = compute_batched_rewards(
+            n_pegs_before=n_pegs_before,
+            n_pegs_after=n_pegs_after,
+            is_terminal=self.done,
+            device=self.device
+        )
         
         # 累计奖励
         self.total_reward += rewards
