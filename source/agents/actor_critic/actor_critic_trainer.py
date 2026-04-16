@@ -43,8 +43,9 @@ class ActorCriticTrainer(BaseTrainer):
     """
     def __init__(self, env: Env, agent: ActorCriticAgent, n_iter: int, n_games_train: int, agent_results_filepath: str,
                  n_steps_update: int = None, log_every: int = None, n_games_eval: int = 10, n_optim_steps: int = None,
-                 batch_size: int = 64, log_dir: str = None, checkpoints_dir: str = None, 
-                 remote_checkpoints_dir: str = None, meta_dir: str = None, results_dir: str = None):
+                 batch_size: int = 64, log_dir: str = None, checkpoints_dir: str = None,
+                 remote_checkpoints_dir: str = None, meta_dir: str = None, results_dir: str = None,
+                 checkpoint_path: str = None):
         super().__init__(env, agent, n_iter, n_games_train, agent_results_filepath, n_steps_update, log_every,
                          n_games_eval)
         # TODO: create a config class for trainers
@@ -53,6 +54,8 @@ class ActorCriticTrainer(BaseTrainer):
         self.checkpoints_dir = checkpoints_dir
         self.meta_dir = meta_dir
         self.results_dir = results_dir
+        # checkpoint_path 只在第一次 trainer.fit() 时使用，之后置 None
+        self._resume_checkpoint_path = checkpoint_path
 
         # Pytorch lightning logger - 直接保存到 logs/tensorboard，不使用 version_0
         pl_logger = self.get_pl_logger(name="tensorboard", log_dir=os.path.join(log_dir, "tensorboard") if log_dir else None)
@@ -69,8 +72,13 @@ class ActorCriticTrainer(BaseTrainer):
             save_top_k=-1  # 保存所有 checkpoints 到 local
         )
         self.n_optim_steps = n_optim_steps
+        # 如果从 checkpoint 续训，需要从 checkpoint 的 epoch 数开始累加，否则 PL 会报 max_epochs 冲突
+        resume_epoch = 0
+        if checkpoint_path is not None and n_optim_steps is None:
+            ckpt_meta = torch.load(checkpoint_path, map_location="cpu")
+            resume_epoch = ckpt_meta.get("epoch", 0)
         if n_optim_steps is None:
-            self.n_epochs = 0
+            self.n_epochs = resume_epoch   # 从已有 epoch 数开始，_set_trainer_epochs_steps 每次 +1
             self.max_steps = -1
         else:
             self.n_epochs = None
@@ -127,7 +135,10 @@ class ActorCriticTrainer(BaseTrainer):
 
     def update_agent(self, dataloader: DataLoader):
         self._set_trainer_epochs_steps()
-        self.trainer.fit(model=self.agent.network, train_dataloaders=dataloader)
+        # 第一次调用时用 ckpt_path 恢复完整训练状态（权重 + epoch + step）
+        ckpt_path = self._resume_checkpoint_path
+        self._resume_checkpoint_path = None   # 只恢复一次，后续正常训练
+        self.trainer.fit(model=self.agent.network, train_dataloaders=dataloader, ckpt_path=ckpt_path)
 
     def log_evaluation_results(self, rewards, pegs_left, greedy_reward, greedy_pegs_left):
         mean_reward = np.mean(rewards)

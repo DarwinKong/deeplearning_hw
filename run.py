@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import datetime
 from pytorch_lightning import seed_everything
 import click
@@ -29,18 +29,20 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
 
 
 @click.command()
-@click.option('-an', '--agent_name', required=True, type=click.STRING, 
+@click.option('-an', '--agent_name', required=True, type=click.STRING,
               help='Agent name: "actor_critic" (A2C) or "ppo"')
 @click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',
               help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
 @click.option('--remote', is_flag=True, default=False,
               help='Save checkpoints to remote directory (committed to git). Default: save to local directory.')
-def main(agent_name: str, network_name: str = None, remote: bool = False):
+@click.option('--checkpoint', required=False, type=click.Path(exists=True), default=None,
+              help='Path to a checkpoint (.ckpt) to resume training from.')
+def main(agent_name: str, network_name: str = None, remote: bool = False, checkpoint: str = None):
     """RL Solitaire 训练入口"""
-    run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=remote)
+    run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=remote, checkpoint_path=checkpoint)
 
 
-def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool = False):
+def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool = False, checkpoint_path: str = None):
     # 生成实验名称和时间戳
     timestamp = strp_datetime(datetime.now())
     experiment_name = path_config.get_experiment_name(agent_name, timestamp)
@@ -83,6 +85,7 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
             yaml.safe_dump(network_config_dict, file)
         network_config = NetConfig(config_dict=network_config_dict)
         network_class = get_network_class_from_name(network_name)
+
         network = network_class(network_config)
 
     # define agent
@@ -97,14 +100,15 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
     # define trainer
     trainer_class = get_class_from_name(agent_name, class_type="trainer")
     trainer = trainer_class(
-        env=Env(), 
-        agent=agent, 
+        env=Env(),
+        agent=agent,
         agent_results_filepath=results_filepath,
-        log_dir=logs_dir,  # 使用 logs_dir
+        log_dir=logs_dir,
         checkpoints_dir=checkpoints_dir,
-        remote_checkpoints_dir=None,  # 不再需要单独的 remote dir
+        remote_checkpoints_dir=None,
         meta_dir=meta_dir,
         results_dir=results_dir,
+        checkpoint_path=checkpoint_path,  # 传入续训 checkpoint，由 trainer 在首次 fit 时恢复
         **trainer_config
     )
 
@@ -152,12 +156,15 @@ if __name__ == "__main__":
     network_name = "fc_policy_value"  # 网络架构
     agent_name = 'actor_critic'        # 算法: 'actor_critic' (A2C) 或 'ppo'
     use_remote = False                 # 是否保存到远程目录
-    
+    checkpoint_path = None            # 续训 checkpoint 路径，例如：
+                                       # "checkpoints-and-logs/local/A2C_2026_04_14-21_00/checkpoints/epoch=5_step=100.ckpt"
+
     # 如果是通过命令行调用，Click 会处理；否则直接运行
     import sys
     if len(sys.argv) == 1:
         # 没有命令行参数，使用默认配置
-        run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=use_remote)
+        run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=use_remote,
+            checkpoint_path=checkpoint_path)
     else:
         # 有命令行参数，使用 Click
         main()
