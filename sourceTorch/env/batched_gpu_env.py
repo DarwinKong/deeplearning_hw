@@ -29,8 +29,8 @@ import torch
 import torch.nn as nn
 from typing import Dict
 
-# 从原始 env 导入常量
-from source.env.env import (
+# 导入本地常量（不依赖 source）
+from .constants import (
     GRID, POS_TO_INDICES, N_PEGS, MOVES, ACTIONS, 
     N_ACTIONS, N_STATE_CHANNELS, OUT_OF_BORDER_ACTIONS
 )
@@ -61,10 +61,14 @@ ACTION_TARGET_POSITIONS = ACTION_POSITIONS + 2 * ACTION_MOVES  # (132, 2)
 
 # 预计算中间位置和目标位置的索引
 def find_position_index(pos_tensor):
-    """找到位置在 GRID 中的索引"""
+    """找到位置在 GRID 中的索引，如果不存在则返回 -1"""
     # broadcasting: (132, 1, 2) == (1, 33, 2) -> (132, 33, 2) -> (132, 33)
     matches = (GRID_TENSOR.unsqueeze(0) == pos_tensor.unsqueeze(1)).all(dim=2)
-    return matches.float().argmax(dim=1)
+    # 使用 where 找到匹配的索引，如果没有匹配则返回 -1
+    indices = matches.float().argmax(dim=1)
+    has_match = matches.any(dim=1)
+    indices = torch.where(has_match, indices, torch.full_like(indices, -1))
+    return indices
 
 ACTION_MID_INDICES = find_position_index(ACTION_MID_POSITIONS)  # (132,)
 ACTION_TARGET_INDICES = find_position_index(ACTION_TARGET_POSITIONS)  # (132,)
@@ -148,14 +152,20 @@ class BatchedGPUEnv(nn.Module):
         if mask is None:
             mask = torch.ones(self.n_envs, dtype=torch.bool, device=self.device)
         
-        # 重置棋子状态：第一个位置为空，其他都有棋子
+        # 重置棋子状态：中心位置（索引16）为空，其他都有棋子
         self.pegs[mask] = 1.0
-        self.pegs[mask, 0] = 0.0
+        self.pegs[mask, 16] = 0.0  # 中心位置 (0, 0) 为空
         
         # 重置计数器
         self.n_pegs[mask] = N_PEGS
         self.done[mask] = False
         self.total_reward[mask] = 0.0
+        
+        # 返回观测数据
+        return {
+            'states': self.state,
+            'feasible_actions': self.feasible_actions
+        }
     
     @property
     def state(self):
@@ -205,10 +215,19 @@ class BatchedGPUEnv(nn.Module):
         mid_indices = self.action_mid_indices  # (132,)
         target_indices = self.action_target_indices  # (132,)
         
-        mid_has_peg = self.pegs[:, mid_indices]  # (n_envs, 132)
-        target_empty = (self.pegs[:, target_indices] == 0)  # (n_envs, 132)
+        # 处理越界情况：如果索引为 -1，说明动作越界，应该标记为不可行
+        mid_valid = (mid_indices >= 0)  # (132,)
+        target_valid = (target_indices >= 0)  # (132,)
         
-        jump_feasible = (mid_has_peg > 0) & target_empty
+        # 使用 clamp 避免负数索引
+        mid_indices_safe = mid_indices.clamp(min=0)
+        target_indices_safe = target_indices.clamp(min=0)
+        
+        mid_has_peg = self.pegs[:, mid_indices_safe]  # (n_envs, 132)
+        target_empty = (self.pegs[:, target_indices_safe] == 0)  # (n_envs, 132)
+        
+        # 只有当索引有效时才检查棋子和空位
+        jump_feasible = mid_valid.unsqueeze(0) & target_valid.unsqueeze(0) & (mid_has_peg > 0) & target_empty
         mask = mask & jump_feasible
         
         # 已完成的环境，所有动作都不可行
@@ -295,6 +314,7 @@ class BatchedGPUEnv(nn.Module):
             'rewards': rewards,
             'states': self.state,
             'dones': self.done,
+            'feasible_actions': self.feasible_actions,
             'infos': {
                 'n_pegs': self.n_pegs.clone(),
                 'total_reward': self.total_reward.clone()
