@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>孔明棋</title>
+  <style>
+    :root{
+      --cell: 72px;
+      --gap: 8px;
+      --board-bg: #f6f6f6;
+      --peg: #d8bd93;
+      --peg-shadow: #b99767;
+      --hole-border: #d6c2a1;
+      --selected: #ff9f43;
+      --valid: #78c26d;
+      --text: #333;
+      --panel: #ffffff;
+    }
+
+    *{
+      box-sizing: border-box;
+    }
+
+    body{
+      margin:0;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background: linear-gradient(180deg, #f8f8f8, #ececec);
+      color: var(--text);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:20px;
+    }
+
+    h1{
+      margin: 6px 0 12px;
+      font-size: 28px;
+    }
+
+    .wrap{
+      width: min(95vw, 680px);
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.08);
+      margin-bottom: 14px;
+    }
+
+    .info{
+      display:flex;
+      gap:18px;
+      flex-wrap:wrap;
+      align-items:center;
+      font-size:16px;
+    }
+
+    .buttons{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    button{
+      border:none;
+      background:#2d8cff;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:10px;
+      font-size:15px;
+      cursor:pointer;
+      transition:.2s;
+    }
+
+    button:hover{
+      filter:brightness(1.05);
+      transform: translateY(-1px);
+    }
+
+    button.secondary{
+      background:#6c757d;
+    }
+
+    .board-wrap{
+      background: var(--board-bg);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 10px 26px rgba(0,0,0,.08);
+      overflow:auto;
+    }
+
+    .board{
+      display:grid;
+      grid-template-columns: repeat(7, var(--cell));
+      grid-template-rows: repeat(7, var(--cell));
+      gap: var(--gap);
+      justify-content:center;
+      align-content:center;
+      margin:auto;
+      min-width: fit-content;
+    }
+
+    .cell{
+      width: var(--cell);
+      height: var(--cell);
+      position:relative;
+      border-radius:50%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      user-select:none;
+    }
+
+    .invalid{
+      visibility:hidden;
+      pointer-events:none;
+    }
+
+    .hole{
+      border: 2px solid var(--hole-border);
+      background: radial-gradient(circle at 35% 35%, #fff, #f6f1e8 65%, #ece2d0);
+    }
+
+    .peg{
+      width:100%;
+      height:100%;
+      border-radius:50%;
+      background:
+        radial-gradient(circle at 35% 30%, #ead7b2 0%, var(--peg) 58%, #caa873 100%);
+      box-shadow:
+        inset 0 2px 0 rgba(255,255,255,.4),
+        inset 0 -4px 8px rgba(0,0,0,.08),
+        0 2px 6px rgba(0,0,0,.10);
+    }
+
+    .cell.selected{
+      outline: 4px solid var(--selected);
+      outline-offset: 2px;
+    }
+
+    .cell.valid-target{
+      outline: 4px solid var(--valid);
+      outline-offset: 2px;
+    }
+
+    .message{
+      margin-top: 14px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.06);
+      min-height: 48px;
+      line-height:1.5;
+    }
+
+    .tips{
+      margin-top: 10px;
+      font-size:14px;
+      color:#666;
+    }
+
+    @media (max-width: 640px){
+      :root{
+        --cell: 54px;
+        --gap: 6px;
+      }
+
+      h1{
+        font-size:24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>孔明棋</h1>
+
+    <div class="toolbar">
+      <div class="info">
+        <div>剩余棋子：<strong id="pegCount">32</strong></div>
+        <div>步数：<strong id="stepCount">0</strong></div>
+      </div>
+      <div class="buttons">
+        <button id="restartBtn">重新开始</button>
+        <button id="undoBtn" class="secondary">悔棋</button>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div id="board" class="board"></div>
+    </div>
+
+    <div class="message" id="message">
+      玩法：先点击一个棋子，再点击它跨过一枚相邻棋子后能到达的空孔。
+    </div>
+
+    <div class="tips">
+      胜利条件：最后只剩一枚棋子，并且位于中心孔。
+    </div>
+  </div>
+
+  <script>
+    // 7x7 标准十字孔明棋盘
+    // -1 = 无效位置
+    //  1 = 有棋子
+    //  0 = 空孔
+    const initialBoard = [
+      [-1, -1,  1,  1,  1, -1, -1],
+      [-1, -1,  1,  1,  1, -1, -1],
+      [ 1,  1,  1,  1,  1,  1,  1],
+      [ 1,  1,  1,  0,  1,  1,  1],
+      [ 1,  1,  1,  1,  1,  1,  1],
+      [-1, -1,  1,  1,  1, -1, -1],
+      [-1, -1,  1,  1,  1, -1, -1],
+    ];
+
+    let board = [];
+    let selected = null; // {r, c}
+    let history = [];
+    let steps = 0;
+
+    const boardEl = document.getElementById('board');
+    const pegCountEl = document.getElementById('pegCount');
+    const stepCountEl = document.getElementById('stepCount');
+    const messageEl = document.getElementById('message');
+    const restartBtn = document.getElementById('restartBtn');
+    const undoBtn = document.getElementById('undoBtn');
+
+    function cloneBoard(src){
+      return src.map(row => [...row]);
+    }
+
+    function resetGame(){
+      board = cloneBoard(initialBoard);
+      selected = null;
+      history = [];
+      steps = 0;
+      updateInfo();
+      setMessage('玩法：先点击一个棋子，再点击它跨过一枚相邻棋子后能到达的空孔。');
+      render();
+    }
+
+    function updateInfo(){
+      pegCountEl.textContent = countPegs();
+      stepCountEl.textContent = steps;
+    }
+
+    function countPegs(){
+      let count = 0;
+      for(let r = 0; r < 7; r++){
+        for(let c = 0; c < 7; c++){
+          if(board[r][c] === 1) count++;
+        }
+      }
+      return count;
+    }
+
+    function isInside(r, c){
+      return r >= 0 && r < 7 && c >= 0 && c < 7;
+    }
+
+    function getValidMovesFrom(r, c){
+      if(board[r][c] !== 1) return [];
+      const dirs = [
+        [-1, 0], [1, 0], [0, -1], [0, 1]
+      ];
+      const moves = [];
+      for(const [dr, dc] of dirs){
+        const mr = r + dr;       // 中间被跳过的棋子
+        const mc = c + dc;
+        const tr = r + dr * 2;   // 目标位置
+        const tc = c + dc * 2;
+        if(
+          isInside(tr, tc) &&
+          board[mr]?.[mc] === 1 &&
+          board[tr]?.[tc] === 0
+        ){
+          moves.push({r: tr, c: tc, jumped: {r: mr, c: mc}});
+        }
+      }
+      return moves;
+    }
+
+    function canMove(fromR, fromC, toR, toC){
+      const moves = getValidMovesFrom(fromR, fromC);
+      return moves.find(m => m.r === toR && m.c === toC) || null;
+    }
+
+    function hasAnyMoves(){
+      for(let r = 0; r < 7; r++){
+        for(let c = 0; c < 7; c++){
+          if(board[r][c] === 1 && getValidMovesFrom(r, c).length > 0){
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function checkGameState(){
+      const pegCount = countPegs();
+      const centerWin = pegCount === 1 && board[3][3] === 1;
+
+      if(centerWin){
+        setMessage('恭喜你，获胜！最后一枚棋子位于中心孔。');
+        return;
+      }
+
+      if(!hasAnyMoves()){
+        if(pegCount === 1){
+          setMessage('只剩一枚棋子，但不在中心孔。很接近了！');
+        }else{
+          setMessage(`游戏结束：已无可走步。剩余 ${pegCount} 枚棋子。`);
+        }
+      }else{
+        setMessage('继续游戏：点击一个棋子，再点击可达的空孔。');
+      }
+    }
+
+    function setMessage(msg){
+      messageEl.textContent = msg;
+    }
+
+    function handleCellClick(r, c){
+      if(board[r][c] === -1) return;
+
+      // 点击棋子：选中或切换选中
+      if(board[r][c] === 1){
+        selected = {r, c};
+        render();
+        const valid = getValidMovesFrom(r, c);
+        if(valid.length > 0){
+          setMessage(`已选中棋子（${r+1}, ${c+1}），请选择绿色高亮的目标空孔。`);
+        }else{
+          setMessage('这个棋子当前不能移动，请选择别的棋子。');
+        }
+        return;
+      }
+
+      // 点击空孔：尝试移动
+      if(board[r][c] === 0){
+        if(!selected){
+          setMessage('请先点击一个棋子。');
+          return;
+        }
+
+        const move = canMove(selected.r, selected.c, r, c);
+        if(!move){
+          setMessage('非法移动：必须直线跳过一枚相邻棋子，落到其后的空孔。');
+          return;
+        }
+
+        history.push({
+          board: cloneBoard(board),
+          selected: selected ? {...selected} : null,
+          steps
+        });
+
+        board[r][c] = 1;
+        board[selected.r][selected.c] = 0;
+        board[move.jumped.r][move.jumped.c] = 0;
+        steps++;
+        selected = null;
+
+        updateInfo();
+        render();
+        checkGameState();
+      }
+    }
+
+    function render(){
+      boardEl.innerHTML = '';
+      let validTargets = [];
+
+      if(selected){
+        validTargets = getValidMovesFrom(selected.r, selected.c);
+      }
+
+      for(let r = 0; r < 7; r++){
+        for(let c = 0; c < 7; c++){
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+
+          if(board[r][c] === -1){
+            cell.classList.add('invalid');
+          }else{
+            cell.classList.add('hole');
+
+            if(selected && selected.r === r && selected.c === c){
+              cell.classList.add('selected');
+            }
+
+            if(validTargets.some(m => m.r === r && m.c === c)){
+              cell.classList.add('valid-target');
+            }
+
+            if(board[r][c] === 1){
+              const peg = document.createElement('div');
+              peg.className = 'peg';
+              cell.appendChild(peg);
+            }
+
+            cell.addEventListener('click', () => handleCellClick(r, c));
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    restartBtn.addEventListener('click', resetGame);
+
+    undoBtn.addEventListener('click', () => {
+      if(history.length === 0){
+        setMessage('当前没有可悔的步。');
+        return;
+      }
+      const prev = history.pop();
+      board = cloneBoard(prev.board);
+      selected = prev.selected;
+      steps = prev.steps;
+      updateInfo();
+      render();
+      setMessage('已悔棋。');
+    });
+
+    resetGame();
+  </script>
+</body>
+</html>

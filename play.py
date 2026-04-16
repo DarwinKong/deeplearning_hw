@@ -218,7 +218,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) == 1:
         # 没有命令行参数，使用默认配置
-        play(agent='actor_critic',experiment="checkpoints-and-logs/remote/A2C_2026_04_14-21_00", n_games=1, render=True)
+        play(agent='actor_critic',experiment="checkpoints-and-logs/remote/A2C_2026_04_14-21_00", n_games=1, render=True, greedy=False)
     else:
         # 有命令行参数，使用 argparse
         main()
