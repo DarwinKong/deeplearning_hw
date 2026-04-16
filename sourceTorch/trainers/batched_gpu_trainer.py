@@ -1,0 +1,355 @@
+"""
+批量 GPU 训练器 - 使用向量化环境实现极致加速
+
+核心优化：
+1. 同时运行 N 个游戏（n_envs）
+2. 所有数据在 GPU 上，零 CPU-GPU 传输
+3. 批量前向传播
+4. 高效的数据收集
+"""
+import logging
+import os
+import time
+import torch
+import torch.optim as optim
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
+
+from sourceTorch.agent.base_algorithm import BaseAlgorithm
+from sourceTorch.env.batched_gpu_env import BatchedGPUEnv
+from sourceTorch.utils.gpu_training_monitor import GPUTrainingMonitor
+
+logger = logging.getLogger()
+
+
+class BatchedGPUTrainer:
+    """
+    批量 GPU 训练器
+    
+    使用 BatchedGPUEnv 实现极致的并行化和 GPU 加速。
+    
+    Args:
+        n_envs: 并行环境数量（建议 64-256）
+        algorithm: 算法实例
+        n_iter: 训练迭代次数
+        n_steps_per_env: 每个环境每轮收集的步数
+        ...
+    """
+    
+    def __init__(self,
+                 n_envs=64,
+                 algorithm: BaseAlgorithm = None,
+                 n_iter=200,
+                 n_steps_per_env=32,
+                 agent_results_filepath="results/batched.pt",
+                 learning_rate=3e-5,
+                 batch_size=256,
+                 n_optim_steps=1,
+                 log_dir=None,
+                 checkpoints_dir=None,
+                 meta_dir=None,
+                 results_dir=None):
+        
+        self.n_envs = n_envs
+        self.algorithm = algorithm
+        self.n_iter = n_iter
+        self.n_steps_per_env = n_steps_per_env
+        self.agent_results_filepath = agent_results_filepath
+        self.batch_size = batch_size
+        self.n_optim_steps = n_optim_steps
+        
+        # 创建批量环境
+        device = next(algorithm.network.parameters()).device
+        self.env = BatchedGPUEnv(n_envs=n_envs, device=device)
+        
+        # 优化器
+        self.optimizer = optim.Adam(algorithm.network.parameters(), lr=learning_rate)
+        
+        # 监控器
+        log_dir = log_dir or os.path.dirname(agent_results_filepath) or "temp/logs_batched"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        self.monitor = GPUTrainingMonitor(log_dir, device=device, flush_interval=10)
+        
+        # 目录
+        self.checkpoints_dir = checkpoints_dir or "temp/checkpoints_batched"
+        self.meta_dir = meta_dir or "temp/meta_batched"
+        self.results_dir = results_dir or "temp/results_batched"
+        
+        os.makedirs(self.checkpoints_dir, exist_ok=True)
+        os.makedirs(self.meta_dir, exist_ok=True)
+        os.makedirs(self.results_dir, exist_ok=True)
+        
+        logger.info(f"Initialized BatchedGPU Trainer")
+        logger.info(f"  n_envs: {n_envs}")
+        logger.info(f"  Device: {device}")
+        logger.info(f"  Learning rate: {learning_rate}")
+    
+    def collect_batched_data(self):
+        """
+        批量收集数据
+        
+        Returns:
+            dict with all tensors on GPU:
+                - states: (total_steps, 7, 7, 3)
+                - actions: (total_steps,)
+                - action_masks: (total_steps, 132)
+                - rewards: (total_steps,)
+                - dones: (total_steps,)
+        """
+        self.algorithm.set_evaluation_mode()
+        
+        total_steps = self.n_envs * self.n_steps_per_env
+        
+        # 预分配缓冲区（GPU）
+        states_buf = torch.zeros(total_steps, 7, 7, 3, device=self.env.device)
+        actions_buf = torch.zeros(total_steps, dtype=torch.long, device=self.env.device)
+        masks_buf = torch.zeros(total_steps, 132, device=self.env.device)
+        rewards_buf = torch.zeros(total_steps, device=self.env.device)
+        dones_buf = torch.zeros(total_steps, dtype=torch.bool, device=self.env.device)
+        
+        # 重置环境
+        self.env.reset()
+        
+        step_idx = 0
+        for step in range(self.n_steps_per_env):
+            # 获取当前状态和可行动作
+            states = self.env.state  # (n_envs, 7, 7, 3)
+            feasible = self.env.feasible_actions  # (n_envs, 132)
+            
+            # 批量选择动作
+            with torch.no_grad():
+                policies = self.algorithm.get_policy(states)  # (n_envs, 132)
+                masked_policies = policies * feasible.float()
+                
+                # 采样动作
+                action_dist = torch.distributions.Categorical(masked_policies)
+                actions = action_dist.sample()  # (n_envs,)
+            
+            # 执行动作
+            result = self.env.step(actions)
+            
+            # 存储数据
+            start_idx = step * self.n_envs
+            end_idx = start_idx + self.n_envs
+            
+            states_buf[start_idx:end_idx] = states
+            actions_buf[start_idx:end_idx] = actions
+            masks_buf[start_idx:end_idx] = feasible
+            rewards_buf[start_idx:end_idx] = result['rewards']
+            dones_buf[start_idx:end_idx] = result['dones']
+            
+            step_idx += self.n_envs
+            
+            # 重置已完成的环境
+            if result['dones'].any():
+                self.env.reset(mask=result['dones'])
+        
+        return {
+            'states': states_buf,
+            'actions': actions_buf,
+            'action_masks': masks_buf,
+            'rewards': rewards_buf,
+            'dones': dones_buf
+        }
+    
+    def compute_returns_and_advantages(self, data):
+        """
+        计算 returns 和 advantages（完全 GPU 操作）
+        
+        Args:
+            data: dict from collect_batched_data
+        
+        Returns:
+            data with added 'value_targets' and 'advantages'
+        """
+        states = data['states']
+        rewards = data['rewards']
+        dones = data['dones']
+        
+        # 批量价值估计
+        values = self.algorithm.get_value(states).squeeze(-1)  # (total_steps,)
+        
+        # 重塑为 (n_steps, n_envs)
+        n_steps = self.n_steps_per_env
+        values_reshaped = values.view(n_steps, self.n_envs)
+        rewards_reshaped = rewards.view(n_steps, self.n_envs)
+        dones_reshaped = dones.view(n_steps, self.n_envs)
+        
+        # 逆向计算 returns
+        returns = torch.zeros_like(values_reshaped)
+        advantages = torch.zeros_like(values_reshaped)
+        
+        # 最后一步的 bootstrap value
+        next_values = torch.zeros(self.n_envs, device=self.env.device)
+        
+        for t in reversed(range(n_steps)):
+            # 如果 done，则 next_value = 0
+            effective_next_values = next_values * (~dones_reshaped[t]).float()
+            
+            # TD target
+            returns[t] = rewards_reshaped[t] + self.algorithm.config.get('discount', 1.0) * effective_next_values
+            
+            # Advantage
+            advantages[t] = returns[t] - values_reshaped[t]
+            
+            # Update next_values
+            next_values = values_reshaped[t]
+        
+        # 展平
+        data['value_targets'] = returns.flatten()
+        data['advantages'] = advantages.flatten()
+        
+        return data
+    
+    def update_agent(self, data):
+        """
+        更新算法参数（批量训练）
+        """
+        self.algorithm.set_training_mode()
+        
+        # 创建 DataLoader
+        dataset = torch.utils.data.TensorDataset(
+            data['states'],
+            data['actions'],
+            data['action_masks'],
+            data['advantages'].unsqueeze(-1),
+            data['value_targets'].unsqueeze(-1)
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset, 
+            batch_size=self.batch_size, 
+            shuffle=True
+        )
+        
+        for epoch in range(self.n_optim_steps):
+            for batch_states, batch_actions, batch_masks, batch_advs, batch_targets in dataloader:
+                # 计算损失
+                loss_dict = self.algorithm.compute_loss(
+                    states=batch_states,
+                    actions=batch_actions,
+                    action_masks=batch_masks,
+                    advantages=batch_advs,
+                    value_targets=batch_targets
+                )
+                
+                total_loss = loss_dict['total_loss']
+                
+                # 反向传播
+                self.optimizer.zero_grad()
+                total_loss.backward()
+                
+                # 梯度裁剪
+                if hasattr(self.algorithm, 'max_grad_norm'):
+                    torch.nn.utils.clip_grad_norm_(
+                        self.algorithm.network.parameters(),
+                        max_norm=self.algorithm.max_grad_norm
+                    )
+                
+                self.optimizer.step()
+    
+    def evaluate(self):
+        """评估（使用贪心策略）"""
+        self.algorithm.set_evaluation_mode()
+        
+        # 使用单个环境进行评估
+        single_env = BatchedGPUEnv(n_envs=1, device=self.env.device)
+        
+        total_rewards = []
+        pegs_left_list = []
+        
+        for _ in range(10):  # 评估 10 次
+            single_env.reset()
+            done = False
+            
+            while not done:
+                state = single_env.state
+                feasible = single_env.feasible_actions
+                
+                with torch.no_grad():
+                    policy = self.algorithm.get_policy(state)[0]
+                    masked_policy = policy * feasible[0].float()
+                    
+                    if masked_policy.sum() == 0:
+                        break
+                    
+                    action = torch.argmax(masked_policy).unsqueeze(0)
+                
+                result = single_env.step(action)
+                done = result['dones'][0].item()
+            
+            total_rewards.append(single_env.total_reward[0].item())
+            pegs_left_list.append(single_env.n_pegs[0].item())
+        
+        return {
+            'eval_mean_reward': sum(total_rewards) / len(total_rewards),
+            'eval_std_reward': torch.tensor(total_rewards).std().item(),
+            'eval_mean_pegs_left': sum(pegs_left_list) / len(pegs_left_list),
+            'timestamp': time.time()
+        }
+    
+    def train(self):
+        """主训练循环"""
+        logger.info(f"Starting batched GPU training for {self.n_iter} iterations")
+        logger.info(f"  Parallel environments: {self.n_envs}")
+        logger.info(f"  Steps per env: {self.n_steps_per_env}")
+        logger.info(f"  Total steps per iteration: {self.n_envs * self.n_steps_per_env}")
+        
+        with logging_redirect_tqdm():
+            for i in tqdm(range(self.n_iter)):
+                # 1. 批量收集数据
+                start_time = time.time()
+                
+                with torch.no_grad():
+                    data = self.collect_batched_data()
+                    data = self.compute_returns_and_advantages(data)
+                
+                collect_time = time.time() - start_time
+                
+                # 2. 更新 Agent
+                start_time = time.time()
+                self.update_agent(data)
+                train_time = time.time() - start_time
+                
+                # 3. 评估
+                if i % 10 == 0:
+                    eval_metrics = self.evaluate()
+                else:
+                    eval_metrics = {
+                        'eval_mean_reward': 0,
+                        'eval_std_reward': 0,
+                        'eval_mean_pegs_left': 0,
+                        'timestamp': time.time()
+                    }
+                
+                # 4. 记录指标
+                metrics = {
+                    'iteration': i,
+                    'mean_reward': eval_metrics['eval_mean_reward'],
+                    'collect_time': collect_time,
+                    'train_time': train_time,
+                    **eval_metrics
+                }
+                self.monitor.training_history.append(metrics)
+                
+                # 5. 保存检查点
+                if i % 50 == 0:
+                    checkpoint_path = os.path.join(self.checkpoints_dir, f"iter_{i}.pt")
+                    torch.save({
+                        'iteration': i,
+                        'network_state_dict': self.algorithm.network.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict(),
+                    }, checkpoint_path)
+                
+                # 6. 打印进度
+                if i % 10 == 0:
+                    speed = 1.0 / (collect_time + train_time)
+                    logger.info(
+                        f"Iter {i}: "
+                        f"Reward={eval_metrics['eval_mean_reward']:.2f}, "
+                        f"Pegs={eval_metrics['eval_mean_pegs_left']:.2f}, "
+                        f"Speed={speed:.1f} it/s"
+                    )
+        
+        logger.info("Training completed!")
+        return self.monitor.training_history
