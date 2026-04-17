@@ -203,11 +203,16 @@ class RewardMonitor(BaseMonitor):
         self.best_reward = -float('inf')
         self.best_pegs_left = float('inf')
         self.reward_history = []
+        self._log_dir = None  # 由 MonitorManager 设置
     
     def on_epoch_end(self, epoch: int, metrics: Dict[str, Any]):
-        """记录奖励并更新最优值"""
+        """记录奖励并更新最优值（仅记录真实评估的轮次）"""
         reward = metrics.get('eval_mean_reward', 0)
         pegs_left = metrics.get('eval_mean_pegs_left', 0)
+        
+        # 只记录真实评估的轮次（reward > 0 表示进行了评估）
+        if reward == 0 and pegs_left == 0:
+            return  # 跳过非评估轮次
         
         reward_data = {
             'epoch': epoch,
@@ -233,6 +238,28 @@ class RewardMonitor(BaseMonitor):
             'best_reward': self.best_reward,
             'best_pegs_left': self.best_pegs_left
         })
+        
+        # 🔥 流式保存到 CSV（每次评估后都保存，防止崩溃时数据丢失）
+        if hasattr(self, '_log_dir') and self._log_dir:
+            import pandas as pd
+            import os
+            df = pd.DataFrame(self.reward_history)
+            csv_path = os.path.join(self._log_dir, 'evaluation_metrics.csv')
+            df.to_csv(csv_path, index=False)
+    
+    def on_train_end(self):
+        """训练结束时保存评估指标到 CSV"""
+        if not self.reward_history:
+            return
+        
+        import pandas as pd
+        import os
+        
+        # 获取 log_dir（从 metrics 中传递，或需要外部设置）
+        if hasattr(self, '_log_dir') and self._log_dir:
+            df = pd.DataFrame(self.reward_history)
+            csv_path = os.path.join(self._log_dir, 'evaluation_metrics.csv')
+            df.to_csv(csv_path, index=False)
     
     def get_summary(self) -> Dict[str, Any]:
         """返回奖励监控摘要"""
@@ -275,6 +302,9 @@ class MonitorManager:
     def add_monitor(self, monitor: BaseMonitor):
         """添加监控器"""
         self.monitors[monitor.name] = monitor
+        # 传递 log_dir 给监控器（如果需要保存文件）
+        if hasattr(monitor, '_log_dir'):
+            monitor._log_dir = self.log_dir
     
     def remove_monitor(self, name: str):
         """移除监控器"""
@@ -296,11 +326,8 @@ class MonitorManager:
     
     def on_epoch_end(self, epoch: int, metrics: Dict[str, Any]):
         """每轮迭代结束时调用，并实时保存日志"""
-        # 存储到历史
-        self.epoch_history.append({
-            'epoch': epoch,
-            **metrics
-        })
+        # 存储到历史（metrics 中已包含 epoch，不需要重复添加）
+        self.epoch_history.append(metrics)
         
         # 通知所有监控器
         for monitor in self.monitors.values():
@@ -315,19 +342,48 @@ class MonitorManager:
             monitor.on_train_end()
     
     def _save_history_csv(self):
-        """实时保存训练历史到 CSV"""
+        """实时保存训练历史到 CSV（优化版：避免内存爆炸）"""
         if not self.epoch_history:
             return
         
         import pandas as pd
         import os
         
-        # 转换为 DataFrame
-        df = pd.DataFrame(self.epoch_history)
-        
-        # 保存到 CSV
         csv_path = os.path.join(self.log_dir, 'training_history_full.csv')
-        df.to_csv(csv_path, index=False)
+        
+        # 策略：如果历史记录超过 5000 条，使用追加模式而不是重写整个文件
+        # 这样可以防止大文件重写时的内存问题
+        MAX_FULL_REWRITE = 5000
+        
+        if len(self.epoch_history) <= MAX_FULL_REWRITE:
+            # 数据量小，直接重写
+            df = pd.DataFrame(self.epoch_history)
+            try:
+                df.to_csv(csv_path, index=False)
+            except MemoryError:
+                # 如果仍然内存不足，使用追加模式
+                self._append_to_csv(csv_path, self.epoch_history[-1:])
+        else:
+            # 数据量大，只追加最新的一条记录
+            self._append_to_csv(csv_path, self.epoch_history[-1:])
+    
+    def _append_to_csv(self, csv_path: str, new_rows: list):
+        """追加新行到 CSV 文件"""
+        import pandas as pd
+        import os
+        
+        if not new_rows:
+            return
+        
+        # 如果文件不存在，创建新文件
+        if not os.path.exists(csv_path):
+            df = pd.DataFrame(new_rows)
+            df.to_csv(csv_path, index=False)
+            return
+        
+        # 追加新行
+        df_new = pd.DataFrame(new_rows)
+        df_new.to_csv(csv_path, mode='a', header=False, index=False)
     
     def get_full_summary(self) -> Dict[str, Any]:
         """获取所有监控器的摘要"""

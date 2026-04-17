@@ -36,6 +36,14 @@ def parse_args():
                         help='Resume from experiment directory or checkpoint file. '
                              'If directory, will find latest checkpoint automatically.')
     
+    # PPO 超参数
+    parser.add_argument('--ppo-entropy-coef', type=float, default=0.01,
+                        help='PPO entropy coefficient (default: 0.01, recommended: 0.05-0.1 for long training)')
+    parser.add_argument('--ppo-clip-epsilon', type=float, default=0.2,
+                        help='PPO clip epsilon (default: 0.2)')
+    parser.add_argument('--ppo-value-loss-coef', type=float, default=0.5,
+                        help='PPO value loss coefficient (default: 0.5)')
+    
     return parser.parse_args()
 
 
@@ -100,28 +108,34 @@ def load_config_from_yaml(agent_name, network_name):
 def main():
     args = parse_args()
     
+    # 从 YAML 加载配置
+    network_config_dict, trainer_config = load_config_from_yaml(args.agent_name, args.network_name)
+    
+    # 命令行参数优先，否则从 YAML 读取
+    n_iter = args.n_iter
+    
+    # Learning Rate: 如果用户没有显式指定（使用默认值 3e-5），则从 YAML 读取
+    if args.lr == 3e-5 and 'optimizer' in network_config_dict:
+        learning_rate = network_config_dict['optimizer'].get('lr', args.lr)
+    else:
+        learning_rate = args.lr
+    
+    batch_size = trainer_config.get('batch_size', 256)
+    n_optim_steps = trainer_config.get('n_optim_steps', 1) or 1
+    
     print("=" * 80)
     print("SourceTorch Training")
     print("=" * 80)
     print(f"Algorithm: {args.agent_name.upper()}")
     print(f"Network: {args.network_name}")
-    print(f"Iterations: {args.n_iter}")
+    print(f"Iterations: {n_iter}")
     print(f"Parallel Envs: {args.n_envs}")
     print(f"Steps per Env: {args.n_steps}")
-    print(f"Learning Rate: {args.lr}")
+    print(f"Learning Rate: {learning_rate}")
     print(f"Device: {args.device}")
     if args.resume_from:
         print(f"Resume from: {args.resume_from}")
     print("=" * 80)
-    
-    # 从 YAML 加载配置
-    network_config_dict, trainer_config = load_config_from_yaml(args.agent_name, args.network_name)
-    
-    # 命令行参数始终优先于 YAML 配置
-    n_iter = args.n_iter
-    learning_rate = args.lr
-    batch_size = trainer_config.get('batch_size', 256)
-    n_optim_steps = trainer_config.get('n_optim_steps', 1) or 1
     
     # 处理 resume 逻辑
     start_iter = 0
@@ -210,20 +224,45 @@ def main():
     # 创建算法
     agent_class = get_agent_class(args.agent_name)
     
+    # PPO 超参数（可通过命令行调整）
+    ppo_clip_epsilon = getattr(args, 'ppo_clip_epsilon', 0.2)
+    ppo_value_loss_coef = getattr(args, 'ppo_value_loss_coef', 0.5)
+    ppo_entropy_coef = getattr(args, 'ppo_entropy_coef', 0.01)  # 默认 0.01，建议 0.05-0.1
+    
     if args.agent_name.lower() == 'a2c':
+        # 从网络配置读取损失权重
+        loss_config = network_config_dict.get('loss', {})
+        actor_coef = loss_config.get('actor_loss', {}).get('coef', 1.0)
+        critic_coef = loss_config.get('critic_loss', {}).get('coef', 0.5)
+        entropy_coef = loss_config.get('regularization', {}).get('coef', 0.01)
+        
         algorithm = agent_class(
             network=network,
-            actor_loss_weight=1.0,
-            critic_loss_weight=0.5,
-            entropy_weight=0.01
+            actor_loss_weight=actor_coef,
+            critic_loss_weight=critic_coef,
+            entropy_weight=entropy_coef
         )
     elif args.agent_name.lower() == 'ppo':
+        # 从 trainer config 读取 PPO 参数
+        ppo_config = trainer_config.get('ppo', {})
+        clip_epsilon = ppo_config.get('clip_epsilon', ppo_clip_epsilon)
+        value_loss_coef = ppo_config.get('value_loss_coef', ppo_value_loss_coef)
+        entropy_coef = ppo_config.get('entropy_coef', ppo_entropy_coef)
+        max_grad_norm = ppo_config.get('max_grad_norm', 0.5)
+        
         algorithm = agent_class(
             network=network,
-            clip_epsilon=0.2,
-            value_loss_coef=0.5,
-            entropy_coef=0.01
+            clip_epsilon=clip_epsilon,
+            value_loss_coef=value_loss_coef,
+            entropy_coef=entropy_coef,
+            max_grad_norm=max_grad_norm
         )
+        
+        # 将 GAE 等参数传递给 algorithm.config（供 compute_returns_and_advantages 使用）
+        algorithm.config['use_gae'] = ppo_config.get('use_gae', True)
+        algorithm.config['gae_lambda'] = ppo_config.get('gae_lambda', 0.95)
+        algorithm.config['discount'] = ppo_config.get('discount', 0.99)
+        algorithm.config['normalize_advantages'] = ppo_config.get('normalize_advantages', True)
     
     # 创建训练器
     trainer = BatchedGPUTrainer(
@@ -239,7 +278,8 @@ def main():
         checkpoints_dir=checkpoint_dir,
         meta_dir=meta_dir,
         results_dir=results_dir,
-        enable_monitors=args.enable_monitors  # 传递监控开关
+        enable_monitors=args.enable_monitors,
+        network_config=net_config  # 传递网络配置（包含优化器参数）  # 传递监控开关
     )
     
     # 如果需要，从 checkpoint 恢复

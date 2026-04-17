@@ -30,7 +30,7 @@ class A2CAgent(BaseAgent):
         )
     """
     
-    def __init__(self, 
+    def __init__(self,
                  network: torch.nn.Module,
                  actor_loss_weight: float = 1.0,
                  critic_loss_weight: float = 0.5,

@@ -45,9 +45,9 @@ def compute_terminal_reward(n_pegs: int, device: torch.device = None) -> torch.T
     Returns:
         torch.Tensor: 终止奖励值
         
-    终止奖励规则：
-    - 完美解（n_pegs == 1）: 补足到总奖励 1.0
-    - 失败（n_pegs > 1）: 给予已移除棋子的比例奖励
+    终止奖励规则（与原版对齐）：
+    - 完美解（n_pegs == 1）: +1.0
+    - 失败（n_pegs > 1）: +1/31（与每步奖励相同）
     """
     if device is None:
         device = torch.device('cpu')
@@ -55,15 +55,11 @@ def compute_terminal_reward(n_pegs: int, device: torch.device = None) -> torch.T
     N_PEGS = 32  # 初始棋子数
     
     if n_pegs == 1:
-        # 完美解：确保总奖励为 1.0
-        # 已获得的奖励 = (32 - 1) / 31 = 1.0
-        # 无需额外奖励
-        return torch.tensor(0.0, device=device)
+        # 完美解：额外奖励 1.0（总奖励 = 31 * 1/31 + 1.0 = 2.0）
+        return torch.tensor(1.0, device=device)
     else:
-        # 失败：给予已移除棋子的比例奖励
-        # 已移除 = 32 - n_pegs
-        removed_ratio = (N_PEGS - n_pegs) / (N_PEGS - 1)
-        return torch.tensor(removed_ratio, device=device)
+        # 失败：给予固定奖励 1/31（与每步奖励相同，与原版对齐）
+        return torch.tensor(1.0 / (N_PEGS - 1), device=device)
 
 
 def compute_batched_rewards(
@@ -84,6 +80,11 @@ def compute_batched_rewards(
     Returns:
         torch.Tensor: 批量奖励，形状 (n_envs,)
         
+    奖励规则（与原版对齐）：
+    - 非终止状态：每步 1/31
+    - 终止且完美解（n_pegs == 1）：1.0
+    - 终止且失败（n_pegs > 1）：1/31
+        
     示例：
         >>> n_pegs_before = torch.tensor([32, 32, 32])
         >>> n_pegs_after = torch.tensor([31, 31, 31])
@@ -95,26 +96,24 @@ def compute_batched_rewards(
         device = n_pegs_before.device
     
     N_PEGS = 32
+    STEP_REWARD = 1.0 / (N_PEGS - 1)  # ≈ 0.032
     
     # 初始化奖励张量
     rewards = torch.zeros_like(n_pegs_before, dtype=torch.float32, device=device)
     
     # 非终止状态：每步奖励
     non_terminal_mask = ~is_terminal
-    rewards[non_terminal_mask] = 1.0 / (N_PEGS - 1)
+    rewards[non_terminal_mask] = STEP_REWARD
     
     # 终止状态：根据剩余棋子数计算
     terminal_mask = is_terminal
     
-    # 完美解（只剩1个棋子）
+    # 完美解（只剩1个棋子）：额外奖励 1.0
     perfect_mask = terminal_mask & (n_pegs_after == 1)
-    # 完美解的奖励已经在之前步骤中累积，这里不需要额外奖励
-    rewards[perfect_mask] = 0.0
+    rewards[perfect_mask] = 1.0
     
-    # 失败情况（棋子 > 1）
+    # 失败情况（棋子 > 1）：固定奖励 1/31
     fail_mask = terminal_mask & (n_pegs_after > 1)
-    if fail_mask.any():
-        removed_ratio = (N_PEGS - n_pegs_after[fail_mask]).float() / (N_PEGS - 1)
-        rewards[fail_mask] = removed_ratio
+    rewards[fail_mask] = STEP_REWARD
     
     return rewards

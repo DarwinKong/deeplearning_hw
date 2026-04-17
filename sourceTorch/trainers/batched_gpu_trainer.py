@@ -58,7 +58,8 @@ class BatchedGPUTrainer:
                  checkpoints_dir=None,
                  meta_dir=None,
                  results_dir=None,
-                 enable_monitors=True):  # 新增：是否启用监控
+                 enable_monitors=True,  # 新增：是否启用监控
+                 network_config=None):  # 新增：网络配置（用于读取优化器参数）
         
         self.n_envs = n_envs
         self.algorithm = algorithm
@@ -72,8 +73,32 @@ class BatchedGPUTrainer:
         device = next(algorithm.network.parameters()).device
         self.env = BatchedGPUEnv(n_envs=n_envs, device=device)
         
-        # 优化器
-        self.optimizer = optim.Adam(algorithm.network.parameters(), lr=learning_rate)
+        # 优化器（从网络配置中读取）
+        optimizer_config = network_config.config_dict.get('optimizer', {})
+        optimizer_name = optimizer_config.get('name', 'adam').lower()
+        weight_decay = optimizer_config.get('weight_decay', 0.0)
+        
+        if optimizer_name == 'adam':
+            self.optimizer = optim.Adam(
+                algorithm.network.parameters(), 
+                lr=learning_rate,
+                weight_decay=weight_decay
+            )
+        elif optimizer_name == 'rmsprop':
+            self.optimizer = optim.RMSprop(
+                algorithm.network.parameters(),
+                lr=learning_rate,
+                weight_decay=weight_decay
+            )
+        elif optimizer_name == 'sgd':
+            self.optimizer = optim.SGD(
+                algorithm.network.parameters(),
+                lr=learning_rate,
+                weight_decay=weight_decay,
+                momentum=optimizer_config.get('momentum', 0.0)
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {optimizer_name}")
         
         # 监控器
         log_dir = log_dir or os.path.dirname(agent_results_filepath) or "temp/logs_batched"
@@ -212,6 +237,14 @@ class BatchedGPUTrainer:
         rewards_buf = torch.zeros(total_steps, device=self.env.device)
         dones_buf = torch.zeros(total_steps, dtype=torch.bool, device=self.env.device)
         
+        # PPO 需要保存旧策略的 logits 和 values
+        if hasattr(self.algorithm, 'clip_epsilon'):  # 检测是否为 PPO
+            old_logits_buf = torch.zeros(total_steps, 132, device=self.env.device)
+            old_values_buf = torch.zeros(total_steps, device=self.env.device)
+        else:
+            old_logits_buf = None
+            old_values_buf = None
+        
         # 重置环境
         self.env.reset()
         
@@ -221,14 +254,24 @@ class BatchedGPUTrainer:
             states = self.env.state  # (n_envs, 7, 7, 3)
             feasible = self.env.feasible_actions  # (n_envs, 132)
             
+            # 计算索引范围
+            start_idx = step * self.n_envs
+            end_idx = start_idx + self.n_envs
+            
             # 批量选择动作
             with torch.no_grad():
-                policies = self.algorithm.get_policy(states)  # (n_envs, 132)
-                masked_policies = policies * feasible.float()
+                logits, values = self.algorithm.get_logits_and_values(states)  # (n_envs, 132), (n_envs, 1)
+                masked_logits = logits + (1 - feasible.float()) * (-1e9)
+                policies = torch.softmax(masked_logits, dim=-1)
                 
                 # 采样动作
-                action_dist = torch.distributions.Categorical(masked_policies)
+                action_dist = torch.distributions.Categorical(policies)
                 actions = action_dist.sample()  # (n_envs,)
+                
+                # 保存旧策略的 logits 和 values（用于 PPO）
+                if old_logits_buf is not None:
+                    old_logits_buf[start_idx:end_idx] = logits
+                    old_values_buf[start_idx:end_idx] = values.squeeze(-1)
             
             # 执行动作
             result = self.env.step(actions)
@@ -249,17 +292,28 @@ class BatchedGPUTrainer:
             if result['dones'].any():
                 self.env.reset(mask=result['dones'])
         
-        return {
+        result = {
             'states': states_buf,
             'actions': actions_buf,
             'action_masks': masks_buf,
             'rewards': rewards_buf,
             'dones': dones_buf
         }
+        
+        # 添加 PPO 需要的旧策略信息
+        if old_logits_buf is not None:
+            result['old_logits'] = old_logits_buf
+            result['old_values'] = old_values_buf
+        
+        return result
     
     def compute_returns_and_advantages(self, data):
         """
         计算 returns 和 advantages（完全 GPU 操作）
+        
+        支持两种模式：
+        1. GAE (Generalized Advantage Estimation) - 推荐
+        2. Simple TD(0) - 快速 baseline
         
         Args:
             data: dict from collect_batched_data
@@ -280,25 +334,68 @@ class BatchedGPUTrainer:
         rewards_reshaped = rewards.view(n_steps, self.n_envs)
         dones_reshaped = dones.view(n_steps, self.n_envs)
         
-        # 逆向计算 returns
-        returns = torch.zeros_like(values_reshaped)
-        advantages = torch.zeros_like(values_reshaped)
+        # 从 config 读取参数
+        discount = self.algorithm.config.get('discount', 0.99)
+        use_gae = self.algorithm.config.get('use_gae', True)
+        gae_lambda = self.algorithm.config.get('gae_lambda', 0.95)
         
-        # 最后一步的 bootstrap value
-        next_values = torch.zeros(self.n_envs, device=self.env.device)
+        if use_gae:
+            # ==================== GAE 计算 ====================
+            # GAE 公式：A_t = sum_{l=0}^{T-t-1} (gamma * lambda)^l * delta_{t+l}
+            # 其中 delta_t = r_t + gamma * V(s_{t+1}) - V(s_t)
+            
+            returns = torch.zeros_like(values_reshaped)
+            advantages = torch.zeros_like(values_reshaped)
+            
+            # 最后一步的 bootstrap value
+            next_values = torch.zeros(self.n_envs, device=self.env.device)
+            gae = torch.zeros(self.n_envs, device=self.env.device)
+            
+            for t in reversed(range(n_steps)):
+                # 如果 done，则 next_value = 0
+                effective_next_values = next_values * (~dones_reshaped[t]).float()
+                
+                # TD error: delta_t = r_t + gamma * V(s_{t+1}) - V(s_t)
+                delta = rewards_reshaped[t] + discount * effective_next_values - values_reshaped[t]
+                
+                # GAE: A_t = delta_t + gamma * lambda * A_{t+1}
+                gae = delta + discount * gae_lambda * gae * (~dones_reshaped[t]).float()
+                
+                # Advantage
+                advantages[t] = gae
+                
+                # Return = Advantage + Value
+                returns[t] = gae + values_reshaped[t]
+                
+                # Update next_values
+                next_values = values_reshaped[t]
+        else:
+            # ==================== 简单 TD(0) 计算 ====================
+            returns = torch.zeros_like(values_reshaped)
+            advantages = torch.zeros_like(values_reshaped)
+            
+            # 最后一步的 bootstrap value
+            next_values = torch.zeros(self.n_envs, device=self.env.device)
+            
+            for t in reversed(range(n_steps)):
+                # 如果 done，则 next_value = 0
+                effective_next_values = next_values * (~dones_reshaped[t]).float()
+                
+                # TD target
+                returns[t] = rewards_reshaped[t] + discount * effective_next_values
+                
+                # Advantage
+                advantages[t] = returns[t] - values_reshaped[t]
+                
+                # Update next_values
+                next_values = values_reshaped[t]
         
-        for t in reversed(range(n_steps)):
-            # 如果 done，则 next_value = 0
-            effective_next_values = next_values * (~dones_reshaped[t]).float()
-            
-            # TD target
-            returns[t] = rewards_reshaped[t] + self.algorithm.config.get('discount', 1.0) * effective_next_values
-            
-            # Advantage
-            advantages[t] = returns[t] - values_reshaped[t]
-            
-            # Update next_values
-            next_values = values_reshaped[t]
+        # 优势函数标准化（可选，提升训练稳定性）
+        normalize_advantages = self.algorithm.config.get('normalize_advantages', True)
+        if normalize_advantages:
+            adv_mean = advantages.mean()
+            adv_std = advantages.std() + 1e-8
+            advantages = (advantages - adv_mean) / adv_std
         
         # 展平
         data['value_targets'] = returns.flatten()
@@ -318,13 +415,19 @@ class BatchedGPUTrainer:
         self.algorithm.set_training_mode()
         
         # 创建 DataLoader
-        dataset = torch.utils.data.TensorDataset(
+        dataset_tensors = [
             data['states'],
             data['actions'],
             data['action_masks'],
             data['advantages'].unsqueeze(-1),
             data['value_targets'].unsqueeze(-1)
-        )
+        ]
+        
+        # PPO 需要额外的 old_logits 和 old_values
+        if 'old_logits' in data and 'old_values' in data:
+            dataset_tensors.extend([data['old_logits'], data['old_values']])
+        
+        dataset = torch.utils.data.TensorDataset(*dataset_tensors)
         dataloader = torch.utils.data.DataLoader(
             dataset, 
             batch_size=self.batch_size, 
@@ -337,20 +440,41 @@ class BatchedGPUTrainer:
             'actor_loss': 0.0,
             'critic_loss': 0.0,
             'entropy': 0.0,
+            # PPO 指标
+            'clip_ratio': 0.0,
+            'approx_kl': 0.0,
+            'mean_advantage': 0.0,
         }
         gradient_norms = {}  # 每层梯度范数
         n_batches = 0
         
         for epoch in range(self.n_optim_steps):
-            for batch_states, batch_actions, batch_masks, batch_advs, batch_targets in dataloader:
+            for batch_data in dataloader:
+                # 根据批次数据的数量决定如何解包
+                if len(batch_data) == 5:  # A2C 格式
+                    batch_states, batch_actions, batch_masks, batch_advs, batch_targets = batch_data
+                    batch_old_logits = None
+                    batch_old_values = None
+                elif len(batch_data) == 7:  # PPO 格式
+                    batch_states, batch_actions, batch_masks, batch_advs, batch_targets, batch_old_logits, batch_old_values = batch_data
+                else:
+                    raise ValueError(f"Unexpected number of tensors in batch: {len(batch_data)}")
+                
                 # 计算损失
-                loss_dict = self.algorithm.compute_loss(
-                    states=batch_states,
-                    actions=batch_actions,
-                    action_masks=batch_masks,
-                    advantages=batch_advs,
-                    value_targets=batch_targets
-                )
+                loss_kwargs = {
+                    'states': batch_states,
+                    'actions': batch_actions,
+                    'action_masks': batch_masks,
+                    'advantages': batch_advs,
+                    'value_targets': batch_targets
+                }
+                
+                # 如果是 PPO，添加旧策略信息
+                if batch_old_logits is not None:
+                    loss_kwargs['old_logits'] = batch_old_logits
+                    loss_kwargs['old_values'] = batch_old_values
+                
+                loss_dict = self.algorithm.compute_loss(**loss_kwargs)
                 
                 total_loss = loss_dict['total_loss']
                 
@@ -384,14 +508,35 @@ class BatchedGPUTrainer:
                 
                 # 累积指标（先在 GPU 上累积，最后统一转 CPU）
                 loss_metrics['total_loss'] += loss_dict.get('total_loss', total_loss)
-                loss_metrics['actor_loss'] += loss_dict.get('actor_loss', torch.tensor(0.0, device=total_loss.device))
-                loss_metrics['critic_loss'] += loss_dict.get('critic_loss', torch.tensor(0.0, device=total_loss.device))
-                loss_metrics['entropy'] += loss_dict.get('entropy', torch.tensor(0.0, device=total_loss.device))
+                # 兼容不同的命名方式
+                loss_metrics['actor_loss'] += loss_dict.get('actor_loss', loss_dict.get('policy_loss', torch.tensor(0.0, device=total_loss.device)))
+                loss_metrics['critic_loss'] += loss_dict.get('critic_loss', loss_dict.get('value_loss', torch.tensor(0.0, device=total_loss.device)))
+                
+                # 记录熵并检测崩溃
+                entropy = loss_dict.get('entropy', torch.tensor(0.0, device=total_loss.device))
+                loss_metrics['entropy'] += entropy
+                
+                # 记录额外的 PPO 指标（如果存在）
+                if 'clip_ratio' in loss_dict:
+                    loss_metrics['clip_ratio'] += loss_dict['clip_ratio']
+                if 'approx_kl' in loss_dict:
+                    loss_metrics['approx_kl'] += loss_dict['approx_kl']
+                if 'mean_advantage' in loss_dict:
+                    loss_metrics['mean_advantage'] += loss_dict['mean_advantage']
+                
                 n_batches += 1
         
         # 平均化并转换到 CPU（批量操作）
-        for key in loss_metrics:
-            loss_metrics[key] = (loss_metrics[key] / n_batches).item()
+        if n_batches > 0:
+            for key in loss_metrics:
+                if isinstance(loss_metrics[key], torch.Tensor):
+                    loss_metrics[key] = (loss_metrics[key] / n_batches).item()
+                else:
+                    loss_metrics[key] = loss_metrics[key] / n_batches
+        else:
+            # 如果没有 batch，设置为 0
+            for key in loss_metrics:
+                loss_metrics[key] = 0.0
         
         return {
             'loss_metrics': loss_metrics,
@@ -453,8 +598,14 @@ class BatchedGPUTrainer:
         # 初始化监控系统
         self.monitor_manager.on_train_begin()
         
+        # Rolling mean 统计（用于进度条显示）
+        reward_history = []
+        pegs_left_history = []
+        window_size = 50
+        
         with logging_redirect_tqdm():
-            for i in tqdm(range(start_iter, self.n_iter)):
+            pbar = tqdm(range(start_iter, self.n_iter))
+            for i in pbar:
                 # 通知监控器
                 self.monitor_manager.on_epoch_begin(i)
                 
@@ -476,10 +627,31 @@ class BatchedGPUTrainer:
                 loss_metrics = update_metrics['loss_metrics']
                 gradient_norms = update_metrics['gradient_norms']
                 
-                # 3. 评估
-                if i % 10 == 0:
+                # 🔍 Entropy 崩溃检测
+                current_entropy = loss_metrics.get('entropy', 0.0)
+                if current_entropy < 1e-6:  # 熵接近 0
+                    logger.warning(f"\n{'='*80}")
+                    logger.warning(f"⚠️  WARNING: Entropy 崩溃检测！")
+                    logger.warning(f"   Epoch: {i}")
+                    logger.warning(f"   Entropy: {current_entropy:.6f} (< 1e-6)")
+                    logger.warning(f"   Reward: {loss_metrics.get('eval_mean_reward', 0):.3f}")
+                    logger.warning(f"   Pegs Left: {loss_metrics.get('eval_mean_pegs_left', 0):.1f}")
+                    logger.warning(f"{'='*80}\n")
+                    
+                    # 保存当前 checkpoint
+                    self.save_checkpoint(i)
+                    
+                    # 抛出异常停止训练
+                    raise RuntimeError(
+                        f"Entropy 崩溃！Epoch {i}, Entropy={current_entropy:.6f}. "
+                        f"建议：增大 entropy_coef 或降低 learning_rate"
+                    )
+                
+                # 3. 评估（每 10 轮一次）
+                if i % 10 == 0 or i == self.n_iter - 1:  # 最后一轮也评估
                     eval_metrics = self.evaluate()
                 else:
+                    # 非评估轮次，使用上一轮的评估结果或默认值
                     eval_metrics = {
                         'eval_mean_reward': 0,
                         'eval_std_reward': 0,
@@ -489,7 +661,7 @@ class BatchedGPUTrainer:
                 
                 # 4. 记录指标
                 metrics = {
-                    'iteration': i,
+                    'epoch': i,  # 使用 epoch 而不是 iteration（更标准）
                     'mean_reward': eval_metrics['eval_mean_reward'],
                     'collect_time': collect_time,
                     'train_time': train_time,
@@ -498,12 +670,34 @@ class BatchedGPUTrainer:
                     'actor_loss': loss_metrics['actor_loss'],
                     'critic_loss': loss_metrics['critic_loss'],
                     'entropy': loss_metrics['entropy'],
+                    # PPO 特有指标（如果存在）
+                    'clip_ratio': loss_metrics.get('clip_ratio', 0.0),
+                    'approx_kl': loss_metrics.get('approx_kl', 0.0),
+                    'mean_advantage': loss_metrics.get('mean_advantage', 0.0),
                     # 梯度范数（取平均值和最大值）
                     'grad_norm_mean': sum(gradient_norms.values()) / len(gradient_norms) if gradient_norms else 0.0,
                     'grad_norm_max': max(gradient_norms.values()) if gradient_norms else 0.0,
                     **eval_metrics
                 }
                 self.monitor.training_history.append(metrics)
+                
+                # 更新 rolling mean 历史
+                if eval_metrics['eval_mean_reward'] > 0:  # 只有评估过的轮次
+                    reward_history.append(eval_metrics['eval_mean_reward'])
+                    pegs_left_history.append(eval_metrics['eval_mean_pegs_left'])
+                
+                # 计算 rolling mean
+                if len(reward_history) > 0:
+                    recent_rewards = reward_history[-window_size:]
+                    recent_pegs = pegs_left_history[-window_size:]
+                    rolling_reward = sum(recent_rewards) / len(recent_rewards)
+                    rolling_pegs = sum(recent_pegs) / len(recent_pegs)
+                    
+                    # 更新进度条描述（使用 set_postfix）
+                    pbar.set_postfix(
+                        Reward=f"{rolling_reward:.2f}",
+                        Pegs=f"{rolling_pegs:.2f}"
+                    )
                 
                 # 通知监控器 epoch 结束
                 self.monitor_manager.on_epoch_end(i, metrics)
@@ -579,5 +773,25 @@ class BatchedGPUTrainer:
             with open(gradient_report_path, 'w', encoding='utf-8') as f:
                 json.dump(gradient_report, f, indent=2, ensure_ascii=False)
             logger.info(f"Gradient report saved to {gradient_report_path}")
+    
+    def save_checkpoint(self, epoch: int):
+        """
+        保存检查点（用于异常情况下紧急保存）
+        
+        Args:
+            epoch: 当前轮次
+        """
+        try:
+            checkpoint_path = os.path.join(self.checkpoints_dir, f'emergency_iter_{epoch}.pt')
+            torch.save({
+                'iteration': epoch,
+                'network_state_dict': self.algorithm.network.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'monitor_history': getattr(self.monitor_manager, 'epoch_history', []),
+                'timestamp': time.time()
+            }, checkpoint_path)
+            logger.info(f"✅ Emergency checkpoint saved: {checkpoint_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save emergency checkpoint: {e}")
         
         return self.monitor.training_history
