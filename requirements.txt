@@ -1,14 +1,28 @@
-Click
-click
-numpy
-pyyaml
-pytest
-matplotlib
-seaborn
-notebook
-torch
-pytorch-lightning
-tensorboard
-neptune
-tqdm
-scipy
+# 命令行接口
+click>=8.0.0
+
+# 核心依赖
+numpy>=1.24.0
+torch>=2.0.0
+pytorch-lightning>=2.0.0
+
+# 配置和数据
+pyyaml>=6.0
+scipy>=1.10.0
+
+# 可视化
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tensorboard>=2.13.0
+
+# 实验追踪
+neptune>=1.0.0
+
+# 进度条和工具
+tqdm>=4.65.0
+
+# 测试
+pytest>=7.4.0
+
+# 开发工具
+notebook>=7.0.0

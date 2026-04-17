@@ -1,0 +1,21 @@
+batch_size: 64
+log_every: 10
+n_games_eval: 50
+n_games_train: 20
+n_iter: 14000
+n_optim_steps: null
+n_steps_update: null
+seed: null
+
+# PPO 算法参数
+ppo:
+  clip_epsilon: 0.2          # PPO Clip 范围
+  value_loss_coef: 0.5       # Value Loss 系数
+  entropy_coef: 0.01         # Entropy Bonus 系数
+  max_grad_norm: 0.5         # 梯度裁剪范数
+  
+  # GAE (Generalized Advantage Estimation) 参数
+  use_gae: true              # 是否启用 GAE（推荐开启）
+  gae_lambda: 0.95           # GAE lambda 参数（0-1，越大偏差越小但方差越大）
+  discount: 0.99             # Discount factor (gamma)
+  normalize_advantages: true # 是否标准化优势函数（推荐开启，提升稳定性）

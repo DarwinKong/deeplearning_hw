@@ -1,0 +1,146 @@
+{
+  "gradient_monitor": {
+    "total_records": 1004,
+    "latest": 0.06442580634029582,
+    "history": [
+      {
+        "epoch": 19950,
+        "grad_norm_mean": 0.316674758651061,
+        "grad_norm_max": 1.4803816080093384,
+        "grad_norm_min": 0.00755334785208106,
+        "gradient_norms": {
+          "state_embeddings.linear1.weight": 0.5552067160606384,
+          "state_embeddings.linear1.bias": 0.06435360759496689,
+          "state_embeddings.linear2.weight": 0.4158990979194641,
+          "state_embeddings.linear2.bias": 0.053607963025569916,
+          "state_embeddings.linear3.weight": 0.3754521608352661,
+          "state_embeddings.linear3.bias": 0.05454632267355919,
+          "policy_head.linear1.weight": 0.5935727953910828,
+          "policy_head.linear1.bias": 0.07514148205518723,
+          "policy_head.linear2.weight": 1.021597981452942,
+          "policy_head.linear2.bias": 0.09156405925750732,
+          "policy_head.output_linear.weight": 1.4803816080093384,
+          "policy_head.output_linear.bias": 0.09158740192651749,
+          "value_head.linear1.weight": 0.08581127226352692,
+          "value_head.linear1.bias": 0.00755334785208106,
+          "value_head.output_linear.weight": 0.08687470853328705,
+          "value_head.output_linear.bias": 0.013645613566040993
+        }
+      },
+      {
+        "epoch": 19960,
+        "grad_norm_mean": 0.16772478999337181,
+        "grad_norm_max": 0.7422158718109131,
+        "grad_norm_min": 0.010588631965219975,
+        "gradient_norms": {
+          "state_embeddings.linear1.weight": 0.26163485646247864,
+          "state_embeddings.linear1.bias": 0.03176213428378105,
+          "state_embeddings.linear2.weight": 0.21968455612659454,
+          "state_embeddings.linear2.bias": 0.027139542624354362,
+          "state_embeddings.linear3.weight": 0.21631623804569244,
+          "state_embeddings.linear3.bias": 0.028842775151133537,
+          "policy_head.linear1.weight": 0.3079770505428314,
+          "policy_head.linear1.bias": 0.038210563361644745,
+          "policy_head.linear2.weight": 0.520598292350769,
+          "policy_head.linear2.bias": 0.04759964346885681,
+          "policy_head.output_linear.weight": 0.7422158718109131,
+          "policy_head.output_linear.bias": 0.04813404753804207,
+          "value_head.linear1.weight": 0.0946597158908844,
+          "value_head.linear1.bias": 0.010588631965219975,
+          "value_head.output_linear.weight": 0.07038311660289764,
+          "value_head.output_linear.bias": 0.017849603667855263
+        }
+      },
+      {
+        "epoch": 19970,
+        "grad_norm_mean": 0.06385720177786425,
+        "grad_norm_max": 0.20840193331241608,
+        "grad_norm_min": 0.007926003076136112,
+        "gradient_norms": {
+          "state_embeddings.linear1.weight": 0.12343774735927582,
+          "state_embeddings.linear1.bias": 0.014223609119653702,
+          "state_embeddings.linear2.weight": 0.08591002970933914,
+          "state_embeddings.linear2.bias": 0.009890671819448471,
+          "state_embeddings.linear3.weight": 0.08283042162656784,
+          "state_embeddings.linear3.bias": 0.01017118338495493,
+          "policy_head.linear1.weight": 0.08791341632604599,
+          "policy_head.linear1.bias": 0.007926003076136112,
+          "policy_head.linear2.weight": 0.13751156628131866,
+          "policy_head.linear2.bias": 0.009363062679767609,
+          "policy_head.output_linear.weight": 0.20840193331241608,
+          "policy_head.output_linear.bias": 0.009729815647006035,
+          "value_head.linear1.weight": 0.10376161336898804,
+          "value_head.linear1.bias": 0.014666647650301456,
+          "value_head.output_linear.weight": 0.08896899968385696,
+          "value_head.output_linear.bias": 0.027008507400751114
+        }
+      },
+      {
+        "epoch": 19980,
+        "grad_norm_mean": 0.2575745793292299,
+        "grad_norm_max": 1.2604581117630005,
+        "grad_norm_min": 0.004942215047776699,
+        "gradient_norms": {
+          "state_embeddings.linear1.weight": 0.5003886818885803,
+          "state_embeddings.linear1.bias": 0.06052893400192261,
+          "state_embeddings.linear2.weight": 0.35740208625793457,
+          "state_embeddings.linear2.bias": 0.046574514359235764,
+          "state_embeddings.linear3.weight": 0.3269027769565582,
+          "state_embeddings.linear3.bias": 0.04598058760166168,
+          "policy_head.linear1.weight": 0.44351252913475037,
+          "policy_head.linear1.bias": 0.0507022924721241,
+          "policy_head.linear2.weight": 0.7961553335189819,
+          "policy_head.linear2.bias": 0.061531759798526764,
+          "policy_head.output_linear.weight": 1.2604581117630005,
+          "policy_head.output_linear.bias": 0.06713752448558807,
+          "value_head.linear1.weight": 0.05147215723991394,
+          "value_head.linear1.bias": 0.004942215047776699,
+          "value_head.output_linear.weight": 0.04061175882816315,
+          "value_head.output_linear.bias": 0.006892005912959576
+        }
+      },
+      {
+        "epoch": 19990,
+        "grad_norm_mean": 0.22908680175896734,
+        "grad_norm_max": 1.0417014360427856,
+        "grad_norm_min": 0.020200492814183235,
+        "gradient_norms": {
+          "state_embeddings.linear1.weight": 0.3832626938819885,
+          "state_embeddings.linear1.bias": 0.04639987647533417,
+          "state_embeddings.linear2.weight": 0.2957913875579834,
+          "state_embeddings.linear2.bias": 0.037536632269620895,
+          "state_embeddings.linear3.weight": 0.2956206500530243,
+          "state_embeddings.linear3.bias": 0.038299694657325745,
+          "policy_head.linear1.weight": 0.401651531457901,
+          "policy_head.linear1.bias": 0.04115815460681915,
+          "policy_head.linear2.weight": 0.6401686072349548,
+          "policy_head.linear2.bias": 0.04368187114596367,
+          "policy_head.output_linear.weight": 1.0417014360427856,
+          "policy_head.output_linear.bias": 0.048634953796863556,
+          "value_head.linear1.weight": 0.15944914519786835,
+          "value_head.linear1.bias": 0.020200492814183235,
+          "value_head.output_linear.weight": 0.1354888528585434,
+          "value_head.output_linear.bias": 0.03634284809231758
+        }
+      }
+    ]
+  },
+  "loss_monitor": {
+    "total_epochs": 10049,
+    "latest_total_loss": 0.001872524619102478,
+    "trend": "fluctuating"
+  },
+  "entropy_monitor": {
+    "current_entropy": 0.733208954334259,
+    "mean_entropy": 0.9310971141003865,
+    "min_entropy": 0.6055396795272827,
+    "max_entropy": 1.5993571281433105,
+    "convergence_indicator": "converging"
+  },
+  "reward_monitor": {
+    "best_reward": 0.9677414894104004,
+    "best_pegs_left": 2.0,
+    "current_reward": 0.9677414894104004,
+    "improvement": true
+  }
+}

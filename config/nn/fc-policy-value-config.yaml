@@ -1,0 +1,39 @@
+activation:
+  approximate: tanh
+  name: gelu
+architecture:
+  embeddings:
+    bias: true
+    hidden_dim: 256
+    input_dim: 147  # 7*7*3
+    n_layers: 3
+  policy_head:
+    bias: true
+    hidden_dim: 256
+    n_layers: 3
+    output_dim: 132
+  value_head:
+    bias: true
+    hidden_dim: 256
+    n_layers: 2
+initializer:
+  name: he_normal
+loss:
+  actor_loss:
+    coef: 1.0  # 从 5.0 降低到 1.0，减缓策略更新
+    # name: ppo_clip
+    label_smoothing: 0.000001
+    name: cross_entropy
+    reduction: none
+  critic_loss:
+    coef: 1.0
+    name: mse
+    reduction: mean
+  regularization:
+    coef: 0.05  # 增大熵系数，防止熵崩溃
+    name: entropy
+name: FCPolicyValueNet
+optimizer:
+  lr: 1.0e-05  # 从 3e-5 降低到 1e-5，更稳定
+  name: adam
+  weight_decay: 1.0e-05

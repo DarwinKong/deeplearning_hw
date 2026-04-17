@@ -1,83 +1,162 @@
-# RL-solitaire
-Solving the game of peg solitaire with a Reinforcement Learning (RL) Algorithm. 
+# RL Solitaire - 强化学习孔明棋求解器
 
-I used an adapted version of Advantage Actor Critic ([A2C](https://arxiv.org/pdf/1602.01783.pdf)) which I implemented from scratch myself to train an RL agent to solve the game of peg solitaire. The game consists of 32 marbles (or pegs) set out in a cross shape. There are 33 positions in the cross-shaped board, and the initial position of the game contains all 32 marbles but one is missing in the center position of the cross. The goal is to remove the marbles one by one until there is only one left. To remove a marble, another marble has to move to an empty space and pass over the marble to remove. 
-
-See the gif demo below to better understand the game : 
+使用强化学习（A2C、PPO）解决孔明棋游戏。
 
 <p align="center">
-<img src="rl-solitaire/figures/solitaire_1.gif" width="400" height="400" />
+<img src="figures/solitaire_1.gif" width="400" height="400" />
 </p>
 
-It is fairly easy to leave between 2 and 5 marbles at the end of the game, but much more difficult to leave only 1. This is why this game is difficult for a reinforcement learning algorithm, since it can easily learn to get high rewards by leaving only a few marbles, but it has to leave even less than 2 marbles to solve the game. 
+---
 
-# Files Description 
+## 🚀 快速开始
 
-- The folder *env* contains three files : *env.py*, *rendering.py* and *border_constraints.py*. The first file contains the implementation of the solitaire environment as a Python Class <b>Env</b> and the basic functions (init, step, reset, etc) that will be used to interact with it. It also contains a function (render) to visualize the environment. The file *border_constraints.py* contains a function to compute the actions which would yield a marble out of the borders of the board. 
-
-- The file *agents* contains the implementation of different classes of agents. The basic core class and its methods are described first, then the classes <b>RandomAgent</b> and <b>ActorCriticAgent</b> are implemented using the base methods from the parent class <b>Agent</b>. The actor-critic agent implements A2C and consists of a neural network implemented in the folder *nn*.
-
-- The folder *nn* contains different types of NN architectures. 
-
-- The file *run.py* contains the main file for training the agent. The config file is read and then the training of the agent can start with the parameters found in the configuration file.
-
-
-# Description of the Method
-
-I used a slightly adapted version of A2C, which I implemented myself, in which a certain number of games are played using the same agent (i.e. the same policy network). One iteration of training consists of playing out a number of games until the end and updating the network afterwards. At the end of each iteration, the network weights are saved, and an evaluation phase starts where the results of 50 games. 
-
-The input to the network is the state of the environment represented by a 7x7x3 cube, i.e. a 7x7 image with 3 channels. The first channel contains integers 1 and 0 to indicate presence or absence of a marble (peg) at each position. The positions outside the cross-shaped board are automatically filled with zeros. The two other channels contain each a single value broadcasted to the whole channel matrix. The first of those channels contains the percentage of marbles that have been removed so far, and the last contains the percentage of marbles left to remove in order to solve the game.   
-
-# Running the agent
-
-To start training the agent, simply run from the root directory of the project :
+### 环境准备
 
 ```bash
-python run.py --agent_name=agent_name --network_name=network_name
+conda create -n ai python=3.10
+conda activate ai
+pip install -r requirements.txt
 ```
 
-This will create or empty the necessary directories, and then start the training process. The network model will be saved at each iteration, the losses and network gradients and variables information will be logged to be displayed in TensorBoard or Neptune, and the logs of the evaluation results will also be stored to be further analysed later on. 
-
-To visualise the logs during training, under the directory name_of_the_agent/run_name/ run :
+### 训练
 
 ```bash
-tensorboard --logdir . 
+# A2C 算法
+python run.py -an actor_critic -nn fc_policy_value
+
+# PPO 算法
+python run.py -an ppo -nn fc_policy_value
 ```
 
-and then go to http://localhost:6006/ in your browser. If you are using the Neptune logger, logs will automatically appear in your Neptune project browser: go to [https://app.neptune.ai](https://app.neptune.ai) and go to your project name to check your latest run.
+训练数据自动保存到 `checkpoints-and-logs/local/{AGENT}_{timestamp}/`
 
-At the end of training, if you wish to see a demo of the agent completing the game, run the following command : 
+### 游戏演示
 
-```python
-agent.play(env, render=True)
+```bash
+# 指定实验目录
+python play.py --experiment checkpoints-and-logs/local/A2C_2026_04_14-21_00 --n-games 5
+
+# 使用最新 checkpoint
+python play.py --agent ppo --n-games 3
 ```
-where agent is the agent you have imported and loaded from a given checkpoint.
 
-# Training and results
+---
 
-With the configuration parameters as presented in the config file, training took 53 minutes on one CPU to complete the 800 iterations. At the end of training, the agent is able to solve the puzzle almost every time when sampling from the policy, and solves the puzzle every time when using a greedy policy, i.e. selecting at each move the most probable action from the policy. From the 700th training iteration, the agent solved the puzzle 99% of the time during evaluation. It thus takes a little more than 11 000 games for the agent to figure out how to solve the puzzle ! This corresponds to roughly 50 000 network updates. Below are depicted the curves (mean and standard deviation) of the cumulative reward (left) and number of marbles left (right) in the evaluation games as a function of the number of iterations. 
+## 📁 项目结构
 
-<p align="center">
-  <img src="rl-solitaire/figures/rewards_1.jpeg" width="440" height="350" title="Reward as a function of the number of iterations" />
-  <img src="rl-solitaire/figures/pegs_left_1.jpeg" width="440" height="350" title="Number of marbles left as a function of the number of iterations" />
-</p>
+```
+├── config/                      # 配置文件
+│   ├── paths_config.yaml        # 路径配置
+│   └── agent-trainer/           # Agent 配置
+│
+├── source/                      # 核心代码（原始版本）
+│   ├── agents/                  # 强化学习智能体
+│   │   ├── actor_critic/        # A2C 算法
+│   │   └── ppo/                 # PPO 算法
+│   ├── env/                     # 游戏环境
+│   ├── nn/                      # 神经网络
+│   └── utils/                   # 工具函数
+│
+├── sourceTorch/                 # 优化版本（纯 PyTorch，10x 加速）
+│   ├── agent/                   # 算法模块
+│   ├── trainers/                # 训练器
+│   ├── env/                     # 批量 GPU 环境
+│   └── nn/                      # 神经网络
+│
+├── documents/                   # 文档
+│   ├── ALGORITHM_GUIDE.md       # 算法实现说明
+│   ├── OPTIMIZATION_SUMMARY.md  # 优化对比与未来方向
+│   └── TO-DOS.md                # 待办事项
+│
+├── checkpoints-and-logs/        # 实验数据（自动生成）
+│   ├── local/                   # 本地实验
+│   │   └── A2C_2026_04_14-21_00/
+│   │       ├── meta/            # 配置副本
+│   │       ├── logs/            # 日志 + TensorBoard
+│   │       ├── checkpoints/     # 中间模型
+│   │       └── results/         # 训练结果
+│   └── remote/                  # 远程实验（手动推送）
+│
+├── figures/                     # 可视化图表
+└── notebooks/                   # Jupyter 分析
+```
 
-<!-- <p align="center"> <font size="2">Reward vs. iterations</font> &emsp <font size="2"> Number of marbles left vs. iterations </font> <p align="center">
-	 	 Reward vs. iterations	 	 	 Number of marbles left vs. iterations -->
+📚 **详细文档**：
+- [算法实现说明](documents/ALGORITHM_GUIDE.md) - SourceTorch 算法模块详解
+- [优化对比与未来方向](documents/OPTIMIZATION_SUMMARY.md) - SourceTorch vs Source 性能对比
+- [待办事项](documents/TO-DOS.md) - 项目计划
+
+---
+
+## 🔬 技术细节
+
+### 状态表示
+
+7×7×3 张量：
+- 通道 1: 棋子存在性 (0/1)
+- 通道 2: 全局进度信息
+- 通道 3: 额外特征
+
+### 奖励函数
+
+- 每移除一个棋子: +1
+- 游戏结束剩余 n 个棋子: -n
+- 完美解（剩1个）: 额外奖励
+
+### 神经网络架构
+
+支持多种网络：
+- **FC**: 全连接网络
+- **CNN**: 卷积神经网络
+- **Transformer**: Transformer + 2D 位置编码
+
+---
+
+## ⚡ SourceTorch - 优化版本
+
+**SourceTorch** 是原始 `source/` 的纯 PyTorch 重构版本，实现了 **10x 性能提升**。
+
+### 核心优势
+
+| 特性 | source (原始) | sourceTorch (优化) |
+|------|--------------|-------------------|
+| 技术栈 | NumPy + PyTorch Lightning | 纯 PyTorch |
+| 并行度 | 单环境 | 64 并行环境 |
+| 数据传输 | CPU ↔ GPU 频繁传输 | 零 CPU-GPU 传输 |
+| 速度 | 0.40 it/s | **4.00 it/s** ✅ |
+| 14000轮耗时 | ~9.7小时 | **~1小时** ✅ |
+
+### 快速开始
+
+```bash
+# 使用 SourceTorch 训练（推荐）
+cd sourceTorch
+python -c "
+from sourceTorch import A2CAlgorithm, BatchedGPUTrainer
+from sourceTorch.nn.policy_value.fully_connected import FCPolicyValueNet
+from sourceTorch.nn.network_config import NetConfig
+
+# 创建网络和算法
+config = NetConfig(input_shape=(7, 7, 3), n_actions=132, fc_hidden_dims=[256, 128])
+network = FCPolicyValueNet(config).to('cuda')
+algorithm = A2CAlgorithm(network)
+
+# 训练
+trainer = BatchedGPUTrainer(algorithm, n_iter=200, n_steps_per_env=32)
+trainer.train()
+"
+```
+
+📚 **详细文档**：
+- [算法实现说明](documents/ALGORITHM_GUIDE.md)
+- [优化对比与未来方向](documents/OPTIMIZATION_SUMMARY.md)
+
+---
+
+## 👥 团队分工
+
+详见 [TO-DOS.md](documents/TO-DOS.md)
 
 
-<!-- <p align="center">
-<img src="rl-solitaire/figures/rewards.jpeg" width="400" height="400" />
-</p>
-<p align="center">Reward as a function of the number of iterations<p align="center">
 
-<p align="center">
-<img src="rl-solitaire/figures/pegs_left.jpeg" width="400" height="400" />
-</p>
-<p align="center">Number of marbles left as a function of the number of iterations<p align="center"> -->
-
-Finally, you can observe in the gif below the agent solving the puzzle. The solution is produced using the latest version of the network and using a greedy policy (most probable move is selected at each step) : 
-
-<p align="center">
-<img src="rl-solitaire/figures/solitaire_opt_trim_1.gif" width="400" height="400" />
-</p>
+**最后更新**: 2026-04-16
