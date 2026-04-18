@@ -16,6 +16,14 @@ import torch.optim as optim
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
+# 可选：Wandb 监控
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    wandb = None
+
 from sourceTorch.agent.base_agent import BaseAgent
 from sourceTorch.env.batched_gpu_env import BatchedGPUEnv
 from sourceTorch.utils.gpu_training_monitor import GPUTrainingMonitor
@@ -59,7 +67,11 @@ class BatchedGPUTrainer:
                  meta_dir=None,
                  results_dir=None,
                  enable_monitors=True,  # 新增：是否启用监控
-                 network_config=None):  # 新增：网络配置（用于读取优化器参数）
+                 network_config=None,  # 新增：网络配置（用于读取优化器参数）
+                 enable_wandb=False,  # 新增：是否启用 Wandb 监控
+                 wandb_project="peg-solitaire-rl",  # Wandb 项目名称
+                 wandb_run_name=None,  # Wandb 运行名称
+                 wandb_entity=None):  # Wandb 实体名称
         
         self.n_envs = n_envs
         self.algorithm = algorithm
@@ -68,6 +80,38 @@ class BatchedGPUTrainer:
         self.agent_results_filepath = agent_results_filepath
         self.batch_size = batch_size
         self.n_optim_steps = n_optim_steps
+        self.enable_wandb = enable_wandb and WANDB_AVAILABLE
+        self.wandb_entity = wandb_entity
+        
+        # 初始化 Wandb
+        if self.enable_wandb:
+            wandb_args = {
+                "project": wandb_project,
+                "name": wandb_run_name or f"{algorithm.name}_{n_envs}envs_{n_iter}iter",
+                "config": {
+                    "n_envs": n_envs,
+                    "n_iter": n_iter,
+                    "n_steps_per_env": n_steps_per_env,
+                    "learning_rate": learning_rate,
+                    "batch_size": batch_size,
+                    "algorithm": algorithm.name,
+                    "network_config": network_config.config_dict if network_config else None,
+                }
+            }
+            if self.wandb_entity is not None:
+                wandb_args["entity"] = self.wandb_entity
+            try:
+                wandb.init(**wandb_args)
+                logger.info("✓ Wandb logging enabled")
+            except Exception as e:
+                logger.warning(f"✗ Wandb init failed: {e}")
+                logger.warning("✗ Wandb disabled for this run")
+                self.enable_wandb = False
+        else:
+            if enable_wandb and not WANDB_AVAILABLE:
+                logger.warning("✗ Wandb requested but not installed. Install with: pip install wandb")
+            else:
+                logger.info("✗ Wandb disabled")
         
         # 创建批量环境
         device = next(algorithm.network.parameters()).device
@@ -681,6 +725,10 @@ class BatchedGPUTrainer:
                 }
                 self.monitor.training_history.append(metrics)
                 
+                # Wandb 记录
+                if self.enable_wandb:
+                    wandb.log(metrics, step=i)
+                
                 # 更新 rolling mean 历史
                 if eval_metrics['eval_mean_reward'] > 0:  # 只有评估过的轮次
                     reward_history.append(eval_metrics['eval_mean_reward'])
@@ -748,6 +796,11 @@ class BatchedGPUTrainer:
         
         # 通知监控器训练结束
         self.monitor_manager.on_train_end()
+        
+        # Wandb 结束
+        if self.enable_wandb:
+            wandb.finish()
+            logger.info("✓ Wandb run finished")
         
         # 保存监控摘要
         monitor_summary = self.monitor_manager.get_full_summary()

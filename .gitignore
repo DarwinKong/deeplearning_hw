@@ -16,6 +16,7 @@ checkpoints-and-logs/remote/*/logs/
 
 # Logs
 *.log
+wandb
 
 
 # IDE
