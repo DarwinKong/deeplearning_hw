@@ -2,8 +2,8 @@
 SourceTorch 训练脚本 - 基于优化的批量 GPU 实现
 
 用法:
-    python run_torch.py -an a2c -nn fc_policy_value
-    python run_torch.py -an ppo -nn fc_policy_value
+    python runTorch.py -an a2c -nn fc_policy_value
+    python runTorch.py -an ppo -nn fc_policy_value
 """
 import argparse
 import os
@@ -43,6 +43,8 @@ def parse_args():
                         help='PPO clip epsilon (default: 0.2)')
     parser.add_argument('--ppo-value-loss-coef', type=float, default=0.5,
                         help='PPO value loss coefficient (default: 0.5)')
+    parser.add_argument('--wandb-entity', type=str, default=None,
+                        help='Wandb entity/team name for uploads')
     
     return parser.parse_args()
 
@@ -113,6 +115,10 @@ def main():
     
     # 命令行参数优先，否则从 YAML 读取
     n_iter = args.n_iter
+    enable_wandb = trainer_config.get('enable_wandb', False)  # 从 trainer config 读取 wandb 开关
+    wandb_project = trainer_config.get('wandb_project', 'sourcetorch-project')  # 从 trainer config 读取 wandb 项目名称
+    wandb_run_name = trainer_config.get('wandb_run_name', f"{args.agent_name.upper()}_{args.network_name}")  # 从 trainer config 读取 wandb 运行名称
+    wandb_entity = args.wandb_entity or trainer_config.get('wandb_entity', None)
     
     # Learning Rate: 如果用户没有显式指定（使用默认值 3e-5），则从 YAML 读取
     if args.lr == 3e-5 and 'optimizer' in network_config_dict:
@@ -279,7 +285,12 @@ def main():
         meta_dir=meta_dir,
         results_dir=results_dir,
         enable_monitors=args.enable_monitors,
-        network_config=net_config  # 传递网络配置（包含优化器参数）  # 传递监控开关
+        network_config=net_config,  # 传递网络配置（包含优化器参数）  # 传递监控开关
+        enable_wandb=enable_wandb,
+        wandb_project=wandb_project,
+        wandb_run_name=wandb_run_name,
+        wandb_entity=wandb_entity
+
     )
     
     # 如果需要，从 checkpoint 恢复
