@@ -127,7 +127,8 @@ class PPOTrainer(BaseTrainer):
         if self.n_optim_steps is None:
             self.trainer.fit_loop.max_epochs += 1
         else:
-            self.trainer.fit_loop.max_steps += self.n_optim_steps
+            # Lightning 2.x exposes fit_loop.max_steps as a read-only proxy.
+            self.trainer.fit_loop.epoch_loop.max_steps += self.n_optim_steps
 
     def update_agent(self, dataloader: DataLoader):
         self._set_trainer_epochs_steps()

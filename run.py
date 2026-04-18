@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import datetime
 from pytorch_lightning import seed_everything
 import click
@@ -32,12 +32,20 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
 @click.option('-an', '--agent_name', required=True, type=click.STRING, help='Agent name: "actor_critic" (A2C) or "ppo"')
 @click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
 @click.option('--remote', is_flag=True, default=False,help='Save checkpoints to remote directory (committed to git). Default: save to local directory.')
-def main(agent_name: str, network_name: str = None, remote: bool = False):
+@click.option('--trainer_config', required=False, type=click.Path(path_type=str),
+              help='Optional trainer config path. Supports custom reward experiment configs.')
+def main(agent_name: str, network_name: str = None, remote: bool = False, trainer_config: str = None):
     """RL Solitaire 训练入口"""
-    run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=remote)
+    run(agent_name=agent_name,
+        network_name=network_name,
+        use_remote_checkpoints=remote,
+        trainer_config_path=trainer_config)
 
 
-def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool = False):
+def run(agent_name: str,
+        network_name: str = None,
+        use_remote_checkpoints: bool = False,
+        trainer_config_path: str = None):
     # 生成实验名称和时间戳
     timestamp = strp_datetime(datetime.now())
     experiment_name = path_config.get_experiment_name(agent_name, timestamp)
@@ -59,10 +67,11 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
     logger = set_up_logger(path=log_filepath)
 
     # trainer config - 从 path_config 读取路径
-    trainer_config_filepath = path_config.get_agent_trainer_config_path(agent_name)
+    trainer_config_filepath = resolve_trainer_config_path(agent_name, trainer_config_path)
     trainer_config = read_yaml(trainer_config_filepath)
     with open(os.path.join(meta_dir, os.path.basename(trainer_config_filepath)), 'w') as file:
         yaml.safe_dump(trainer_config, file)
+    env_config = trainer_config.pop("env", {}) or {}
 
     # set seed
     seed = get_seed(trainer_config)
@@ -94,7 +103,7 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
     # define trainer
     trainer_class = get_class_from_name(agent_name, class_type="trainer")
     trainer = trainer_class(
-        env=Env(), 
+        env=Env(**env_config),
         agent=agent, 
         agent_results_filepath=results_filepath,
         log_dir=logs_dir,  # 使用 logs_dir
@@ -111,9 +120,27 @@ def run(agent_name: str, network_name: str = None, use_remote_checkpoints: bool 
     logger.info(f"Saving run results and logs at {path_config.get_experiment_dir(agent_name, use_remote=False, timestamp=timestamp)}")
     logger.info(f"Running with random seed {seed}")
     logger.info(f"Running with discount factor {discount_factor}")
+    logger.info(f"Environment reward config: {env_config if env_config else {'reward_mode': 'default'}}")
 
     trainer.train()
 
+
+
+def resolve_trainer_config_path(agent_name: str, trainer_config_path: str = None) -> str:
+    if trainer_config_path is None:
+        return path_config.get_agent_trainer_config_path(agent_name)
+
+    if os.path.isabs(trainer_config_path):
+        return trainer_config_path
+
+    candidate_paths = [
+        os.path.abspath(trainer_config_path),
+        os.path.join(path_config.agent_trainer_config_dir, trainer_config_path),
+    ]
+    for candidate in candidate_paths:
+        if os.path.exists(candidate):
+            return candidate
+    raise FileNotFoundError(f"Trainer config not found: {trainer_config_path}")
 
 
 def get_seed(config_dict: dict) -> int:

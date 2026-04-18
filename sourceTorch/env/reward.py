@@ -1,9 +1,15 @@
 """
-奖励函数模块 - 定义孔明棋的奖励机制
+奖励函数模块 - 定义孔明棋的奖励机制。
 
-算法侧同学可以在此修改奖励函数设计。
+当前支持：
+- default: 原始奖励
+- mobility: 原始奖励 + mobility shaping
 """
 import torch
+
+from .constants import N_ACTIONS
+
+SUPPORTED_REWARD_MODES = {"default", "mobility"}
 
 
 def compute_step_reward(n_pegs_before: int, n_pegs_after: int, device: torch.device = None) -> torch.Tensor:
@@ -66,6 +72,11 @@ def compute_batched_rewards(
     n_pegs_before: torch.Tensor,
     n_pegs_after: torch.Tensor,
     is_terminal: torch.Tensor,
+    reward_mode: str = "default",
+    mobility_before: torch.Tensor = None,
+    mobility_after: torch.Tensor = None,
+    mobility_alpha: float = 0.1,
+    mobility_normalize: bool = False,
     device: torch.device = None
 ) -> torch.Tensor:
     """
@@ -95,6 +106,9 @@ def compute_batched_rewards(
     if device is None:
         device = n_pegs_before.device
     
+    if reward_mode not in SUPPORTED_REWARD_MODES:
+        raise ValueError(f"Unsupported reward mode {reward_mode}. Supported modes: {SUPPORTED_REWARD_MODES}")
+
     N_PEGS = 32
     STEP_REWARD = 1.0 / (N_PEGS - 1)  # ≈ 0.032
     
@@ -116,4 +130,12 @@ def compute_batched_rewards(
     fail_mask = terminal_mask & (n_pegs_after > 1)
     rewards[fail_mask] = STEP_REWARD
     
+    if reward_mode == "mobility":
+        if mobility_before is None or mobility_after is None:
+            raise ValueError("mobility reward requires both mobility_before and mobility_after")
+        mobility_delta = mobility_after.float() - mobility_before.float()
+        if mobility_normalize:
+            mobility_delta = mobility_delta / N_ACTIONS
+        rewards = rewards + mobility_alpha * mobility_delta
+
     return rewards

@@ -173,7 +173,7 @@ def get_network_class_from_name(name: str):
     else:
         dot_split_net_name = SUPPORTED_NETS_TO_CLASS_NAME[name].split('.')
         net_class_name = dot_split_net_name[-1]
-        net_module = importlib.import_module(name='.'.join(['source.nn'] + dot_split_net_name[:-1]))
+        net_module = importlib.import_module(name='.'.join(['sourceTorch.nn'] + dot_split_net_name[:-1]))
         net_class = getattr(net_module, net_class_name)
         return net_class
 

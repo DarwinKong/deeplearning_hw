@@ -1,5 +1,9 @@
 __pycache__/
 *.pyc
+.DS_Store
 rl-solitaire/agents/actor_critic/runs
+checkpoints-and-logs/
 lightning_logs/
+.pytest_cache/
+.ignored/
 test_zjj

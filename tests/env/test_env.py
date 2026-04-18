@@ -103,6 +103,41 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(env.n_pegs, 1)
         self.assertEqual(reward, 1.0)
 
+    def test_hybrid_curriculum_uses_phase_one_mobility_bonus(self):
+        env = Env(reward_mode="hybrid_curriculum",
+                  curriculum_phase1_mobility_alpha=0.1,
+                  curriculum_phase1_terminal_bonus_alpha=0.0,
+                  curriculum_phase2_mobility_alpha=0.0,
+                  curriculum_phase2_terminal_bonus_alpha=0.0,
+                  curriculum_phase3_mobility_alpha=0.0,
+                  curriculum_phase3_terminal_bonus_alpha=0.0)
+        env.set_training_progress(0.1)
+        action = tuple(np.argwhere(env.feasible_actions)[0])
+        mobility_before = env.count_feasible_actions()
+
+        reward, _, _ = env.step(action)
+
+        mobility_after = env.count_feasible_actions()
+        expected_reward = DEFAULT_STEP_REWARD + 0.1 * ((mobility_after - mobility_before) / N_ACTIONS)
+        self.assertAlmostEqual(reward, expected_reward)
+
+    def test_hybrid_curriculum_adds_terminal_bonus_in_late_phase(self):
+        env = Env(reward_mode="hybrid_curriculum",
+                  curriculum_phase1_mobility_alpha=0.0,
+                  curriculum_phase1_terminal_bonus_alpha=0.0,
+                  curriculum_phase2_mobility_alpha=0.0,
+                  curriculum_phase2_terminal_bonus_alpha=0.0,
+                  curriculum_phase3_mobility_alpha=0.0,
+                  curriculum_phase3_terminal_bonus_alpha=0.2)
+        env.set_training_progress(0.9)
+        self._set_board(env, occupied_positions=[(-3, 0), (-2, 0), (3, 0)])
+        action = (GRID.index((-3, 0)), MOVES.index((1, 0)))
+
+        reward, _, end = env.step(action)
+
+        self.assertTrue(end)
+        self.assertAlmostEqual(reward, DEFAULT_STEP_REWARD + 0.2 * ((32 - 2) / 31))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -47,6 +47,7 @@ class BaseTrainer:
         with logging_redirect_tqdm():
             for i in tqdm(range(self.n_iter)):
                 self.current_iteration = i
+                self._update_env_training_progress()
                 # prepare data
                 with torch.no_grad():
                     self.agent.set_evaluation_mode()
@@ -92,6 +93,14 @@ class BaseTrainer:
                 print("\n" + "="*60)
                 print("✅ 训练完成！总结报告已保存到:", self.monitor.summary_file)
                 print("="*60)
+
+    def _update_env_training_progress(self):
+        if self.n_iter <= 1:
+            progress = 1.0
+        else:
+            progress = self.current_iteration / (self.n_iter - 1)
+        if hasattr(self.env, "set_training_progress"):
+            self.env.set_training_progress(progress)
 
     def collect_data(self) -> dict[str, np.ndarray]:
         # play once to get the keys from agent.collect_data

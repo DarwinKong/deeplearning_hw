@@ -59,7 +59,8 @@ class BatchedGPUTrainer:
                  meta_dir=None,
                  results_dir=None,
                  enable_monitors=True,  # 新增：是否启用监控
-                 network_config=None):  # 新增：网络配置（用于读取优化器参数）
+                 network_config=None,
+                 reward_config=None):  # 新增：网络配置（用于读取优化器参数）
         
         self.n_envs = n_envs
         self.algorithm = algorithm
@@ -68,10 +69,11 @@ class BatchedGPUTrainer:
         self.agent_results_filepath = agent_results_filepath
         self.batch_size = batch_size
         self.n_optim_steps = n_optim_steps
-        
+        self.reward_config = reward_config or {}
+
         # 创建批量环境
         device = next(algorithm.network.parameters()).device
-        self.env = BatchedGPUEnv(n_envs=n_envs, device=device)
+        self.env = BatchedGPUEnv(n_envs=n_envs, device=device, **self.reward_config)
         
         # 优化器（从网络配置中读取）
         optimizer_config = network_config.config_dict.get('optimizer', {})
@@ -548,7 +550,9 @@ class BatchedGPUTrainer:
         self.algorithm.set_evaluation_mode()
         
         # 使用单个环境进行评估
-        single_env = BatchedGPUEnv(n_envs=1, device=self.env.device)
+        single_env = BatchedGPUEnv(n_envs=1, device=self.env.device, **self.reward_config)
+        if hasattr(single_env, 'set_training_progress'):
+            single_env.set_training_progress(getattr(self.env, 'training_progress', 0.0))
         
         total_rewards = []
         pegs_left_list = []
@@ -608,6 +612,9 @@ class BatchedGPUTrainer:
             for i in pbar:
                 # 通知监控器
                 self.monitor_manager.on_epoch_begin(i)
+                if hasattr(self.env, 'set_training_progress'):
+                    progress = 0.0 if self.n_iter <= 1 else i / (self.n_iter - 1)
+                    self.env.set_training_progress(progress)
                 
                 # 1. 批量收集数据
                 start_time = time.time()

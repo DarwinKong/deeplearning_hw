@@ -21,7 +21,7 @@ N_ACTIONS = len(ACTIONS)  # = len(GRID) * len(MOVES) = 33 * 4 = 132
 
 N_STATE_CHANNELS = 3
 DEFAULT_STEP_REWARD = 1 / (N_PEGS - 1)
-SUPPORTED_REWARD_MODES = {"default", "mobility", "potential", "terminal_diff"}
+SUPPORTED_REWARD_MODES = {"default", "mobility", "potential", "terminal_diff", "hybrid_curriculum"}
 SUPPORTED_POTENTIAL_FUNCTIONS = {"remaining_pegs", "dispersion", "combined"}
 
 
@@ -105,10 +105,19 @@ class Env(object):
                  interactive_plot=False,
                  reward_mode="default",
                  mobility_alpha=0.1,
+                 terminal_bonus_alpha=0.2,
                  potential_alpha=0.1,
                  potential_gamma=1.0,
                  potential_function="dispersion",
-                 terminal_penalty_scale=1.0):
+                 terminal_penalty_scale=1.0,
+                 curriculum_phase1_end=0.3,
+                 curriculum_phase2_end=0.7,
+                 curriculum_phase1_mobility_alpha=0.1,
+                 curriculum_phase1_terminal_bonus_alpha=0.0,
+                 curriculum_phase2_mobility_alpha=0.05,
+                 curriculum_phase2_terminal_bonus_alpha=0.1,
+                 curriculum_phase3_mobility_alpha=0.0,
+                 curriculum_phase3_terminal_bonus_alpha=0.2):
         '''
         Instantiates an object of the class Env by initializing the number of pegs in the game as well as their
         positions on the grid.
@@ -143,10 +152,20 @@ class Env(object):
             )
         self.reward_mode = reward_mode
         self.mobility_alpha = mobility_alpha
+        self.terminal_bonus_alpha = terminal_bonus_alpha
         self.potential_alpha = potential_alpha
         self.potential_gamma = potential_gamma
         self.potential_function = potential_function
         self.terminal_penalty_scale = terminal_penalty_scale
+        self.curriculum_phase1_end = curriculum_phase1_end
+        self.curriculum_phase2_end = curriculum_phase2_end
+        self.curriculum_phase1_mobility_alpha = curriculum_phase1_mobility_alpha
+        self.curriculum_phase1_terminal_bonus_alpha = curriculum_phase1_terminal_bonus_alpha
+        self.curriculum_phase2_mobility_alpha = curriculum_phase2_mobility_alpha
+        self.curriculum_phase2_terminal_bonus_alpha = curriculum_phase2_terminal_bonus_alpha
+        self.curriculum_phase3_mobility_alpha = curriculum_phase3_mobility_alpha
+        self.curriculum_phase3_terminal_bonus_alpha = curriculum_phase3_terminal_bonus_alpha
+        self.training_progress = 0.0
 
     def _init_pegs(self):
         '''
@@ -176,6 +195,9 @@ class Env(object):
         '''
         self.n_pegs = N_PEGS
         self._init_pegs()
+
+    def set_training_progress(self, progress: float):
+        self.training_progress = float(np.clip(progress, 0.0, 1.0))
 
     def step(self, action):
         '''
@@ -296,6 +318,13 @@ class Env(object):
             return reward + self.potential_alpha * shaping
         if self.reward_mode == "terminal_diff":
             return self._terminal_diff_reward(end=end, solved=solved, base_reward=reward)
+        if self.reward_mode == "hybrid_curriculum":
+            mobility_alpha, terminal_bonus_alpha = self._curriculum_coefficients()
+            mobility_delta = (mobility_after - mobility_before) / N_ACTIONS
+            shaped_reward = reward + mobility_alpha * mobility_delta
+            if end:
+                shaped_reward += terminal_bonus_alpha * self._terminal_score()
+            return shaped_reward
         raise ValueError(f"Unsupported reward mode {self.reward_mode}")
 
     @staticmethod
@@ -309,8 +338,17 @@ class Env(object):
             return 1.0
         if not end:
             return base_reward
-        terminal_score = (N_PEGS - self.n_pegs) / (N_PEGS - 1)
-        return self.terminal_penalty_scale * terminal_score
+        return self.terminal_penalty_scale * self._terminal_score()
+
+    def _terminal_score(self) -> float:
+        return (N_PEGS - self.n_pegs) / (N_PEGS - 1)
+
+    def _curriculum_coefficients(self) -> tuple[float, float]:
+        if self.training_progress < self.curriculum_phase1_end:
+            return self.curriculum_phase1_mobility_alpha, self.curriculum_phase1_terminal_bonus_alpha
+        if self.training_progress < self.curriculum_phase2_end:
+            return self.curriculum_phase2_mobility_alpha, self.curriculum_phase2_terminal_bonus_alpha
+        return self.curriculum_phase3_mobility_alpha, self.curriculum_phase3_terminal_bonus_alpha
 
     def _peg_dispersion(self) -> float:
         peg_positions = np.array([pos for pos, value in self.pegs.items() if value == 1], dtype=np.float32)

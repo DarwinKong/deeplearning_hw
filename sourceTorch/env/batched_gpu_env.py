@@ -104,10 +104,23 @@ class BatchedGPUEnv(nn.Module):
         >>> print(result['rewards'].shape)  # torch.Size([64])
     """
     
-    def __init__(self, n_envs=64, device='cuda'):
+    def __init__(self,
+                 n_envs=64,
+                 device='cuda',
+                 reward_mode='default',
+                 mobility_alpha=0.1,
+                 mobility_normalize=False,
+                 mobility_alpha_final=None,
+                 mobility_anneal_end_progress=1.0):
         super().__init__()
         self.n_envs = n_envs
         self.device = torch.device(device)
+        self.reward_mode = reward_mode
+        self.mobility_alpha = mobility_alpha
+        self.mobility_normalize = mobility_normalize
+        self.mobility_alpha_final = mobility_alpha if mobility_alpha_final is None else mobility_alpha_final
+        self.mobility_anneal_end_progress = mobility_anneal_end_progress
+        self.training_progress = 0.0
         
         # 注册为 buffer（不计算梯度，但会随模块移动到设备）
         self.register_buffer('pegs', torch.ones(n_envs, N_PEGS + 1, dtype=torch.float32, device=self.device))
@@ -126,6 +139,16 @@ class BatchedGPUEnv(nn.Module):
         self.register_buffer('j_indices', J_INDICES.to(self.device))
         
         self.reset()
+
+    def set_training_progress(self, progress: float):
+        self.training_progress = float(max(0.0, min(1.0, progress)))
+
+    def get_current_mobility_alpha(self) -> float:
+        if self.mobility_anneal_end_progress <= 0:
+            return self.mobility_alpha_final
+
+        anneal_ratio = min(self.training_progress / self.mobility_anneal_end_progress, 1.0)
+        return (1.0 - anneal_ratio) * self.mobility_alpha + anneal_ratio * self.mobility_alpha_final
     
     def reset(self, mask: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         """
@@ -151,6 +174,9 @@ class BatchedGPUEnv(nn.Module):
         """
         if mask is None:
             mask = torch.ones(self.n_envs, dtype=torch.bool, device=self.device)
+        else:
+            # MPS 上布尔高级索引不能安全地复用同一底层存储，先 clone 一份。
+            mask = mask.clone()
         
         # 重置棋子状态：中心位置（索引16）为空，其他都有棋子
         self.pegs[mask] = 1.0
@@ -234,6 +260,10 @@ class BatchedGPUEnv(nn.Module):
         mask[self.done] = False
         
         return mask
+
+    def count_feasible_actions(self):
+        """返回每个环境当前可行动作数量。"""
+        return self.feasible_actions.sum(dim=1)
     
     def step(self, actions: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -267,6 +297,8 @@ class BatchedGPUEnv(nn.Module):
         """
         n = self.n_envs
         
+        mobility_before = self.count_feasible_actions()
+
         # 获取动作对应的位置索引
         pos_ids = self.action_pos_ids[actions]  # (n_envs,)
         mid_indices = self.action_mid_indices[actions]  # (n_envs,)
@@ -293,6 +325,7 @@ class BatchedGPUEnv(nn.Module):
         
         # 检查是否还有可行动作
         feasible = self.feasible_actions
+        mobility_after = feasible.sum(dim=1)
         has_feasible = feasible.any(dim=1)  # (n_envs,)
         done_no_moves = ~has_feasible
         
@@ -303,6 +336,11 @@ class BatchedGPUEnv(nn.Module):
             n_pegs_before=n_pegs_before,
             n_pegs_after=n_pegs_after,
             is_terminal=self.done,
+            reward_mode=self.reward_mode,
+            mobility_before=mobility_before,
+            mobility_after=mobility_after,
+            mobility_alpha=self.get_current_mobility_alpha(),
+            mobility_normalize=self.mobility_normalize,
             device=self.device
         )
         
