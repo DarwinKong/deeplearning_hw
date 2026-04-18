@@ -1,0 +1,21 @@
+batch_size: 64
+env:
+  reward_mode: mobility
+  mobility_alpha: 0.1
+log_every: 10
+n_games_eval: 50
+n_games_train: 64
+n_iter: 14000
+n_optim_steps: 4
+n_steps_update: 32
+seed: null
+
+ppo:
+  clip_epsilon: 0.2
+  value_loss_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  use_gae: true
+  gae_lambda: 0.95
+  discount: 0.99
+  normalize_advantages: true

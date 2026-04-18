@@ -138,7 +138,10 @@ class PathConfig:
         :param agent_name: agent 名称
         :return: 配置文件完整路径
         """
-        filename = f"{agent_name.replace('_', '-')}-trainer-config.yaml"
+        filename = {
+            "actor_critic": "actor-critic-trainer-default-reward-config.yaml",
+            "ppo": "ppo-trainer-default-reward-config.yaml",
+        }.get(agent_name, f"{agent_name.replace('_', '-')}-trainer-config.yaml")
         return os.path.join(self.agent_trainer_config_dir, filename)
     
     def get_nn_config_path(self, network_name: str) -> str:

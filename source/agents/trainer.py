@@ -1,4 +1,4 @@
-﻿from tqdm import tqdm
+from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import logging
 import numpy as np
@@ -33,8 +33,9 @@ class BaseTrainer:
         self._name = "BaseTrainer"
         self.current_iteration = 0
         self.agent_results_file = open(agent_results_filepath, "wb+")  # open log file to write in during evaluation
-        
-        # 初始化训练监控器
+        self.best_mean_pegs_left = np.inf
+        self.best_mean_reward = -np.inf
+
         log_dir = os.path.dirname(agent_results_filepath)
         self.monitor = TrainingMonitor(log_dir)
 
@@ -46,6 +47,7 @@ class BaseTrainer:
         with logging_redirect_tqdm():
             for i in tqdm(range(self.n_iter)):
                 self.current_iteration = i
+                self._update_env_training_progress()
                 # prepare data
                 with torch.no_grad():
                     self.agent.set_evaluation_mode()
@@ -92,6 +94,14 @@ class BaseTrainer:
                 print("✅ 训练完成！总结报告已保存到:", self.monitor.summary_file)
                 print("="*60)
 
+    def _update_env_training_progress(self):
+        if self.n_iter <= 1:
+            progress = 1.0
+        else:
+            progress = self.current_iteration / (self.n_iter - 1)
+        if hasattr(self.env, "set_training_progress"):
+            self.env.set_training_progress(progress)
+
     def collect_data(self) -> dict[str, np.ndarray]:
         # play once to get the keys from agent.collect_data
         self.env.reset()
@@ -125,8 +135,9 @@ class BaseTrainer:
         self.agent.set_evaluation_mode()
         rewards, pegs_left = self.agent.evaluate(self.env, self.n_games_eval, greedy=False)
         greedy_reward, greedy_pegs_left = self.agent.evaluate(self.env, greedy=True)  # only 1 game of greedy evaluation
-        
-        # 记录评估指标到监控器
+        mean_reward = float(np.mean(rewards))
+        mean_pegs_left = float(np.mean(pegs_left))
+
         eval_metrics = self.monitor.log_evaluation_metrics(
             iteration=self.current_iteration,
             eval_rewards=rewards,
@@ -134,8 +145,8 @@ class BaseTrainer:
             greedy_reward=greedy_reward[0],
             greedy_pegs_left=greedy_pegs_left[0]
         )
-        
         self.log_evaluation_results(rewards, pegs_left, greedy_reward[0], greedy_pegs_left[0])
+        self._maybe_save_best_agent(mean_reward, mean_pegs_left)
         pickle.dump({"rewards": rewards, "pegs_left": pegs_left}, self.agent_results_file)
         
         return eval_metrics
@@ -150,4 +161,14 @@ class BaseTrainer:
                                                                                              mean_pegs_left))
 
     def save_agent(self):
+        pass
+
+    def _maybe_save_best_agent(self, mean_reward: float, mean_pegs_left: float):
+        should_save = mean_pegs_left < self.best_mean_pegs_left
+        if should_save:
+            self.best_mean_pegs_left = mean_pegs_left
+            self.best_mean_reward = mean_reward
+            self.save_best_agent()
+
+    def save_best_agent(self):
         pass

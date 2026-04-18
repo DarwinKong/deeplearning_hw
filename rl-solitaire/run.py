@@ -1,0 +1,160 @@
+import os
+from datetime import datetime
+from pytorch_lightning import seed_everything
+import click
+import yaml
+
+from env.env import Env
+from utils.tools import strp_datetime, set_up_logger, read_yaml
+from nn.utils import get_network_dir_from_name, get_network_class_from_name
+from nn.network_config import NetConfig
+from agents.utils import get_class_from_name
+
+
+ROOT = "./"
+
+RUNS_DIRNAME = "runs"
+RUN_CONFIG_FILENAME = "run_config.yaml"
+LOG_FILENAME = "log.txt"
+CHECKPOINTS_DIRNAME = "checkpoints"
+RESULTS_FILENAME = "agent_results.pickle"
+SEED = 42
+DEFAULT_DISCOUNT_FACTOR = 1.0
+
+
+# @click.command()
+# @click.option('-an', '--agent_name', required=True, type=click.STRING, help='The name of the agent to train')
+# @click.option('-nn', '--network_name', required=False, type=click.STRING, default=None,
+#               help='The name of the agent to train')
+def run(agent_name: str,
+        network_name: str = None,
+        checkpoint_path: str = None,
+        trainer_config_path: str = None):
+    # file paths and dirs
+    agent_dir = os.path.join(ROOT, "agents", agent_name)
+
+    # 如果从 checkpoint 恢复，复用原有的 run 目录；否则新建
+    if checkpoint_path is not None:
+        # checkpoint 路径形如 .../runs/<run_dirname>/checkpoints/xxx.ckpt
+        # 向上两层取到 run_dir
+        run_dir = os.path.dirname(os.path.dirname(os.path.abspath(checkpoint_path)))
+        log_filepath = os.path.join(run_dir, LOG_FILENAME)
+        checkpoints_dir = os.path.join(run_dir, CHECKPOINTS_DIRNAME)
+        results_filepath = os.path.join(run_dir, RESULTS_FILENAME)
+    else:
+        run_dirname = strp_datetime(datetime.now())
+        run_dir = os.path.join(agent_dir, RUNS_DIRNAME, run_dirname)
+        log_filepath, checkpoints_dir, results_filepath = set_up_files_dirs_and_paths(run_dir)
+
+    logger = set_up_logger(path=log_filepath)
+
+    # trainer config
+    trainer_config_filename = trainer_config_path or f"{agent_name}_trainer_config.yaml"
+    saved_trainer_config_filename = os.path.basename(trainer_config_filename)
+    if os.path.isabs(trainer_config_filename):
+        trainer_config_filepath = trainer_config_filename
+    else:
+        trainer_config_filepath = os.path.join(ROOT, trainer_config_filename)
+        if not os.path.exists(trainer_config_filepath):
+            trainer_config_filepath = os.path.join(agent_dir, trainer_config_filename)
+    trainer_config = read_yaml(trainer_config_filepath)
+    with open(os.path.join(run_dir, saved_trainer_config_filename), 'w') as file:
+        yaml.safe_dump(trainer_config, file)
+    env_config = trainer_config.pop("env", {}) or {}
+
+    # set seed
+    seed = get_seed(trainer_config)
+    seed_everything(seed)
+
+    # define network
+    if network_name is None:
+        network = None
+    else:
+        network_config_filename = network_name + "_config.yaml"
+        network_dir = get_network_dir_from_name(network_name)
+        network_config_filepath = os.path.join(ROOT, network_dir, network_config_filename)
+        network_config_dict = read_yaml(network_config_filepath)
+        with open(os.path.join(run_dir, network_config_filename), 'w') as file:
+            yaml.safe_dump(network_config_dict, file)
+        network_config = NetConfig(config_dict=network_config_dict)
+        network_class = get_network_class_from_name(network_name)
+
+        if checkpoint_path is not None:
+            # 从 checkpoint 加载网络权重（PyTorch Lightning 的方式）
+            network = network_class.load_from_checkpoint(checkpoint_path)
+            logger.info(f"Restored network from checkpoint: {checkpoint_path}")
+        else:
+            network = network_class(network_config)
+
+    # define agent
+    agent_class = get_class_from_name(agent_name, class_type="agent")
+    discount_factor = get_discount_factor(trainer_config)
+    if network is None:
+        agent = agent_class(discount=discount_factor)
+    else:
+        full_agent_name = f"{network.name}-{agent_class.__name__}"
+        agent = agent_class(network=network, name=full_agent_name, discount=discount_factor)
+
+    # define trainer
+    trainer_class = get_class_from_name(agent_name, class_type="trainer")
+    trainer = trainer_class(env=Env(**env_config), agent=agent, agent_results_filepath=results_filepath, log_dir=run_dir,
+                            checkpoints_dir=checkpoints_dir, **trainer_config)
+
+    # log run parameters
+    logger.info(f"---------  Running experiment with agent {agent_name} and network {network_name} ---------")
+    logger.info(f"Saving run results and logs at {run_dir}")
+    logger.info(f"Running with random seed {seed}")
+    logger.info(f"Running with discount factor {discount_factor}")
+    logger.info(f"Environment reward config: {env_config if env_config else {'reward_mode': 'default'}}")
+
+    trainer.train()
+
+
+def set_up_files_dirs_and_paths(run_dir: str) -> (str, str, str):
+    os.makedirs(run_dir, exist_ok=True)
+
+    log_filepath = os.path.join(run_dir, LOG_FILENAME)
+    checkpoints_dir = os.path.join(run_dir, CHECKPOINTS_DIRNAME)
+    results_filepath = os.path.join(run_dir, RESULTS_FILENAME)
+
+    return log_filepath, checkpoints_dir, results_filepath
+
+
+def get_seed(config_dict: dict) -> int:
+    if "seed" not in config_dict:
+        return SEED
+    elif config_dict["seed"] is None:
+        config_dict.pop("seed")
+        return SEED
+    else:
+        return config_dict.pop("seed")
+
+
+def get_discount_factor(config_dict: dict) -> float:
+    if "discount" not in config_dict.keys():
+        return DEFAULT_DISCOUNT_FACTOR
+    elif config_dict["discount"] is None:
+        config_dict.pop("discount")
+        return DEFAULT_DISCOUNT_FACTOR
+    else:
+        return config_dict.pop("discount")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train RL solitaire agent")
+    parser.add_argument("--agent_name", type=str, default="actor_critic",
+                        help="Name of the agent to train (e.g. actor_critic, ppo)")
+    parser.add_argument("--network_name", type=str, default="fc_policy_value",
+                        help="Name of the network to use (e.g. fc_policy_value, conv_policy_value)")
+    parser.add_argument("--checkpoint_path", type=str, default=None,
+                        help="Path to a .ckpt file to resume training from. If not provided, starts from scratch.")
+    parser.add_argument("--trainer_config", type=str, default=None,
+                        help="Optional path to a trainer config yaml. Supports reward experiment-specific configs.")
+    args = parser.parse_args()
+
+    run(agent_name=args.agent_name,
+        network_name=args.network_name,
+        checkpoint_path=args.checkpoint_path,
+        trainer_config_path=args.trainer_config)

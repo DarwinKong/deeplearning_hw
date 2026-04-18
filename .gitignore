@@ -1,27 +1,9 @@
-# Python
-**/__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Temp files
-temp/
-
-# Checkpoints and Logs
-checkpoints-and-logs/local/
-checkpoints-and-logs/remote/*/logs/
-
-# Logs
-*.log
-
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+__pycache__/
+*.pyc
 .DS_Store
-Thumbs.db
+rl-solitaire/agents/actor_critic/runs
+checkpoints-and-logs/
+lightning_logs/
+.pytest_cache/
+.ignored/
+test_zjj
