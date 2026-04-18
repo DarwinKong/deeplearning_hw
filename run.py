@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import datetime
 from pytorch_lightning import seed_everything
 import click
@@ -29,15 +29,10 @@ DEFAULT_DISCOUNT_FACTOR = 1.0
 
 
 @click.command()
-@click.option('-an', '--agent_name', required=True, type=click.STRING,
-              help='Agent name: "actor_critic" (A2C) or "ppo"')
-@click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',
-              help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
-@click.option('--remote', is_flag=True, default=False,
-              help='Save checkpoints to remote directory (committed to git). Default: save to local directory.')
-@click.option('--checkpoint', required=False, type=click.Path(exists=True), default=None,
-              help='Path to a checkpoint (.ckpt) to resume training from.')
-def main(agent_name: str, network_name: str = None, remote: bool = False, checkpoint: str = None):
+@click.option('-an', '--agent_name', required=True, type=click.STRING, help='Agent name: "actor_critic" (A2C) or "ppo"')
+@click.option('-nn', '--network_name', required=False, type=click.STRING, default='fc_policy_value',help='Network architecture: "fc_policy_value", "conv_policy_value", or "transformer_policy_value"')
+@click.option('--remote', is_flag=True, default=False,help='Save checkpoints to remote directory (committed to git). Default: save to local directory.')
+def main(agent_name: str, network_name: str = None, remote: bool = False):
     """RL Solitaire 训练入口"""
     run(agent_name=agent_name, network_name=network_name, use_remote_checkpoints=remote, checkpoint_path=checkpoint)
 

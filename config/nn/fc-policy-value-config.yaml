@@ -20,7 +20,7 @@ initializer:
   name: he_normal
 loss:
   actor_loss:
-    coef: 5.0  # 1.8
+    coef: 1.0  # 从 5.0 降低到 1.0，减缓策略更新
     # name: ppo_clip
     label_smoothing: 0.000001
     name: cross_entropy
@@ -30,10 +30,10 @@ loss:
     name: mse
     reduction: mean
   regularization:
-    coef: 1.0e-04
+    coef: 0.05  # 增大熵系数，防止熵崩溃
     name: entropy
 name: FCPolicyValueNet
 optimizer:
-  lr: 3.0e-05
+  lr: 1.0e-05  # 从 3e-5 降低到 1e-5，更稳定
   name: adam
   weight_decay: 1.0e-05
