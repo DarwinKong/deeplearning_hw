@@ -1,0 +1,55 @@
+# 残差增强示例：PreAct 卷积路径 + SE（任务4）；可与消融表叠加使用
+name:
+  "ConvPolicyValueNet"
+
+architecture:
+  embeddings:
+    input_dim: 3
+    hidden_dim: 32
+    residual_hidden_dim: 64
+    n_residual_blocks: 1
+    bias: True
+    kernel_size: [3, 3]
+    norm_type: group
+    norm_groups: 8
+    residual_preact: true
+    se_reduction: 16
+
+  policy_head:
+    input_dim: 32
+    hidden_dim: 64
+    n_residual_blocks: 1
+    output_dim: 132
+    bias: True
+
+  value_head:
+    input_dim: 32
+    hidden_dim: 64
+    n_residual_blocks: 1
+    bias: True
+
+activation:
+  name: "gelu"
+  approximate: "tanh"
+
+loss:
+  actor_loss:
+    name: "cross_entropy"
+    reduction: "none"
+    label_smoothing: 0.0001
+    coef: 2.0
+  critic_loss:
+    name: "mse"
+    reduction: "mean"
+    coef: 1.0
+  regularization:
+    name: "entropy"
+    coef: 0.000001
+
+initializer:
+  name: "he_normal"
+
+optimizer:
+  name: "adam"
+  lr: 2.0e-5
+  weight_decay: 1.0e-6

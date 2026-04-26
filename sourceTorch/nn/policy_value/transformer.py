@@ -9,6 +9,7 @@ from .skeleton import BasePolicyValueNet
 
 
 class PositionalEncoding(torch.nn.Module):
+    """1D 正弦位置编码：将 49 个 token 展平为一条序列，不区分行列几何。"""
 
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
@@ -30,6 +31,39 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(x)
 
 
+class PositionalEncoding2D(torch.nn.Module):
+    """
+    2D 可学习位置编码：行嵌入 + 列嵌入拼接后注入每个 patch token。
+    棋盘为 7×7 网格，token 顺序与展平一致：index i → (row=i//7, col=i%7)。
+    """
+
+    def __init__(self, d_model: int, dropout: float = 0.1, height: int = 7, width: int = 7):
+        super().__init__()
+        if d_model % 2 != 0:
+            raise ValueError("PositionalEncoding2D requires even d_model for row/col split")
+        self.dropout = torch.nn.Dropout(p=dropout)
+        self.height = height
+        self.width = width
+        self.row_embed = torch.nn.Embedding(height, d_model // 2)
+        self.col_embed = torch.nn.Embedding(width, d_model // 2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: [seq_len, batch, d_model]，通常 seq_len=49
+        """
+        seq_len, batch, d_model = x.shape
+        device = x.device
+        positions = torch.arange(seq_len, device=device)
+        row_idx = positions // self.width
+        col_idx = positions % self.width
+        row_e = self.row_embed(row_idx)
+        col_e = self.col_embed(col_idx)
+        pe = torch.cat([row_e, col_e], dim=-1)
+        pe = pe.unsqueeze(1)
+        return self.dropout(x + pe)
+
+
 class TransformerPolicyValueNet(BasePolicyValueNet):
     """
     A class implementing a policy-value network with a Transformer encoder architecture.
@@ -41,7 +75,8 @@ class TransformerPolicyValueNet(BasePolicyValueNet):
 
     def _build_state_embeddings(self, input_dim: int, hidden_dim: int, n_layers: int, bias=True,
                                 dropout: float = 0.1, max_len: int = 5000, n_heads: int = 4,
-                                feedforward_hidden_dim: int = 256):
+                                feedforward_hidden_dim: int = 256,
+                                positional_encoding: str = "2d", pe_height: int = 7, pe_width: int = 7):
         self.state_embeddings = torch.nn.Module()
         self.state_embeddings.add_module(name="transformer_encoder_layer",
                                          module=TransformerEncoderLayer(d_model=hidden_dim,
@@ -53,9 +88,14 @@ class TransformerPolicyValueNet(BasePolicyValueNet):
         self.state_embeddings.add_module(name="input_embedding",
                                          module=torch.nn.Linear(in_features=input_dim, out_features=hidden_dim,
                                                                 bias=bias))
-        self.state_embeddings.add_module(name="positional_encoder",
-                                         module=PositionalEncoding(d_model=hidden_dim, dropout=dropout,
-                                                                   max_len=max_len))
+        if positional_encoding in ("2d", "2D", "learnable_2d"):
+            self.state_embeddings.add_module(
+                name="positional_encoder",
+                module=PositionalEncoding2D(d_model=hidden_dim, dropout=dropout, height=pe_height, width=pe_width))
+        else:
+            self.state_embeddings.add_module(
+                name="positional_encoder",
+                module=PositionalEncoding(d_model=hidden_dim, dropout=dropout, max_len=max_len))
         self.state_embeddings.add_module(name="transformer_encoder",
                                          module=TransformerEncoder(self.state_embeddings.transformer_encoder_layer,
                                                                    n_layers))

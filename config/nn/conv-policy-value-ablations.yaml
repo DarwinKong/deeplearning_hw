@@ -1,0 +1,133 @@
+# CNN policy-value 消融：统一文件，变体名 cnn_ablation_{a|b|c|d|e}
+# e = 在 D（3×3+GroupNorm）上叠加 PreAct 残差 + SE 通道注意力
+# 使用: python runTorch.py -nn conv_policy_value --nn-variant cnn_ablation_b
+# 省略 --nn-variant 时，conv 默认 cnn_ablation_a（见 default_variant）
+
+default_variant: cnn_ablation_a
+
+tpl_activation: &activation
+  name: "gelu"
+  approximate: "tanh"
+
+tpl_loss: &loss
+  actor_loss:
+    name: "cross_entropy"
+    reduction: "none"
+    label_smoothing: 0.0001
+    coef: 2.0
+  critic_loss:
+    name: "mse"
+    reduction: "mean"
+    coef: 1.0
+  regularization:
+    name: "entropy"
+    coef: 0.000001
+
+tpl_embeddings_base: &embeddings_base
+  input_dim: 3
+  hidden_dim: 32
+  residual_hidden_dim: 64
+  n_residual_blocks: 1
+  bias: True
+  norm_groups: 8
+  residual_preact: false
+  se_reduction: 0
+
+tpl_policy_head: &policy_head
+  input_dim: 32
+  hidden_dim: 64
+  n_residual_blocks: 1
+  output_dim: 132
+  bias: True
+
+tpl_value_head: &value_head
+  input_dim: 32
+  hidden_dim: 64
+  n_residual_blocks: 1
+  bias: True
+
+tpl_initializer: &initializer
+  name: "he_normal"
+
+tpl_optimizer: &optimizer
+  name: "adam"
+  lr: 2.0e-5
+  weight_decay: 1.0e-6
+
+variants:
+  # CNN-A：5×5 + BatchNorm（基线）
+  cnn_ablation_a:
+    name: ConvPolicyValueNet
+    architecture:
+      embeddings:
+        <<: *embeddings_base
+        kernel_size: [5, 5]
+        norm_type: batch
+      policy_head: *policy_head
+      value_head: *value_head
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer
+
+  # CNN-B：3×3 + BatchNorm
+  cnn_ablation_b:
+    name: ConvPolicyValueNet
+    architecture:
+      embeddings:
+        <<: *embeddings_base
+        kernel_size: [3, 3]
+        norm_type: batch
+      policy_head: *policy_head
+      value_head: *value_head
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer
+
+  # CNN-C：5×5 + GroupNorm
+  cnn_ablation_c:
+    name: ConvPolicyValueNet
+    architecture:
+      embeddings:
+        <<: *embeddings_base
+        kernel_size: [5, 5]
+        norm_type: group
+      policy_head: *policy_head
+      value_head: *value_head
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer
+
+  # CNN-D：3×3 + GroupNorm
+  cnn_ablation_d:
+    name: ConvPolicyValueNet
+    architecture:
+      embeddings:
+        <<: *embeddings_base
+        kernel_size: [3, 3]
+        norm_type: group
+      policy_head: *policy_head
+      value_head: *value_head
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer
+
+  # CNN-E：D + PreAct 卷积残差 + SE（残差结构消融）
+  cnn_ablation_e:
+    name: ConvPolicyValueNet
+    architecture:
+      embeddings:
+        <<: *embeddings_base
+        kernel_size: [3, 3]
+        norm_type: group
+        residual_preact: true
+        se_reduction: 16
+      policy_head: *policy_head
+      value_head: *value_head
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer

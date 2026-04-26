@@ -10,8 +10,15 @@ import os
 from datetime import datetime
 
 # SourceTorch imports（不依赖 source）
+import random
+
+import numpy as np
+import torch
+
 from sourceTorch import A2CAgent, PPOAgent, BatchedGPUTrainer
 from sourceTorch.nn.policy_value.fully_connected import FCPolicyValueNet
+from sourceTorch.nn.policy_value.conv import ConvPolicyValueNet
+from sourceTorch.nn.policy_value.transformer import TransformerPolicyValueNet
 from sourceTorch.nn.network_config import NetConfig
 from sourceTorch.utils.tools import read_yaml
 
@@ -21,11 +28,19 @@ def parse_args():
     parser.add_argument('-an', '--agent_name', type=str, default='a2c',
                         choices=['a2c', 'ppo'], help='Algorithm name')
     parser.add_argument('-nn', '--network_name', type=str, default='fc_policy_value',
-                        choices=['fc_policy_value', 'conv_policy_value', 'transformer_policy_value'],
-                        help='Network architecture')
-    parser.add_argument('--n-iter', type=int, default=200, help='Number of training iterations')
+                        help='Network architecture key (fc_policy_value / conv_policy_value / transformer_policy_value)')
+    parser.add_argument('--nn-config', type=str, default=None,
+                        help='覆盖默认网络 YAML：可为 config/nn 下文件名或绝对路径')
+    parser.add_argument('--nn-variant', type=str, default=None,
+                        help='当 YAML 含 variants: 时选用子配置名（如 cnn_ablation_b）；conv 默认 cnn_ablation_a')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='随机种子（可重复实验）')
+    parser.add_argument('--n-iter', type=int, default=None,
+                        help='训练迭代次数；省略则从 agent-trainer YAML 的 n_iter 读取，再无则 200')
     parser.add_argument('--n-envs', type=int, default=64, help='Number of parallel environments')
     parser.add_argument('--n-steps', type=int, default=32, help='Steps per environment')
+    parser.add_argument('--n-optim-steps', type=int, default=None,
+                        help='每轮 rollout 后对同一批数据的优化轮数（未指定则从 agent-trainer YAML 读取）')
     parser.add_argument('--lr', type=float, default=3e-5, help='Learning rate')
     parser.add_argument('--device', type=str, default='cuda', help='Device (cuda or cpu)')
     parser.add_argument('--enable-monitors', action='store_true', default=True, help='Enable training monitors')
@@ -63,12 +78,37 @@ def get_network_class(network_name):
     """获取网络类"""
     if network_name == 'fc_policy_value':
         return FCPolicyValueNet
-    # TODO: 添加其他网络类型
-    else:
-        raise ValueError(f"Unknown network: {network_name}")
+    if network_name == 'conv_policy_value':
+        return ConvPolicyValueNet
+    if network_name == 'transformer_policy_value':
+        return TransformerPolicyValueNet
+    raise ValueError(f"Unknown network: {network_name}. "
+                     f"Use fc_policy_value | conv_policy_value | transformer_policy_value")
 
 
-def load_config_from_yaml(agent_name, network_name):
+def resolve_network_config_dict(raw: dict, nn_variant: str = None) -> dict:
+    """若 YAML 顶层含 `variants:`，则只取其中一个子配置为 NetConfig。"""
+    if isinstance(raw, dict) and "variants" in raw:
+        variants = raw["variants"]
+        if not isinstance(variants, dict):
+            raise ValueError("YAML key 'variants' must be a mapping")
+        key = nn_variant or raw.get("default_variant")
+        if key is None:
+            if "cnn_ablation_a" in variants:
+                key = "cnn_ablation_a"
+            else:
+                key = sorted(variants.keys())[0]
+        if key not in variants:
+            raise ValueError(
+                f"Unknown --nn-variant {key!r}. Valid keys: {sorted(variants.keys())}"
+            )
+        return variants[key]
+    if nn_variant:
+        print("⚠ 当前网络 YAML 无 variants 段，已忽略 --nn-variant")
+    return raw
+
+
+def load_config_from_yaml(agent_name, network_name, nn_config_override: str = None, nn_variant: str = None):
     """
     从 YAML 配置文件加载配置
     
@@ -82,13 +122,30 @@ def load_config_from_yaml(agent_name, network_name):
     # 构建配置文件路径
     config_dir = os.path.join(os.path.dirname(__file__), 'config')
     
-    # 加载网络配置
-    network_config_file = f"{network_name.replace('_', '-')}-config.yaml"
-    network_config_path = os.path.join(config_dir, 'nn', network_config_file)
+    # 加载网络配置（可用 --nn-config 覆盖；conv 默认消融总表）
+    if nn_config_override:
+        if os.path.isabs(nn_config_override):
+            network_config_path = nn_config_override
+        else:
+            network_config_path = os.path.join(config_dir, 'nn', nn_config_override)
+    elif network_name == 'conv_policy_value':
+        network_config_path = os.path.join(config_dir, 'nn', 'conv-policy-value-ablations.yaml')
+    elif network_name == 'transformer_policy_value':
+        network_config_path = os.path.join(config_dir, 'nn', 'transformer-policy-value-ablations.yaml')
+    else:
+        network_config_file = f"{network_name.replace('_', '-')}-config.yaml"
+        network_config_path = os.path.join(config_dir, 'nn', network_config_file)
     
     if os.path.exists(network_config_path):
-        network_config = read_yaml(network_config_path)
+        raw_cfg = read_yaml(network_config_path)
+        network_config = resolve_network_config_dict(raw_cfg, nn_variant=nn_variant)
         print(f"✓ Loaded network config from: {network_config_path}")
+        if isinstance(raw_cfg, dict) and "variants" in raw_cfg:
+            used = nn_variant or raw_cfg.get("default_variant")
+            if used is None:
+                vk = list(raw_cfg["variants"].keys())
+                used = "cnn_ablation_a" if "cnn_ablation_a" in raw_cfg["variants"] else (vk[0] if vk else "?")
+            print(f"  → variant: {used}")
     else:
         print(f"⚠ Network config not found: {network_config_path}, using defaults")
         network_config = {'name': 'FCPolicyValueNet'}
@@ -109,15 +166,29 @@ def load_config_from_yaml(agent_name, network_name):
 
 def main():
     args = parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
     
     # 从 YAML 加载配置
-    network_config_dict, trainer_config = load_config_from_yaml(args.agent_name, args.network_name)
+    network_config_dict, trainer_config = load_config_from_yaml(
+        args.agent_name, args.network_name,
+        nn_config_override=args.nn_config, nn_variant=args.nn_variant)
     
-    # 命令行参数优先，否则从 YAML 读取
-    n_iter = args.n_iter
+    # 命令行 --n-iter 优先；未传则从 trainer YAML 读 n_iter（与一键脚本行为一致）
+    n_iter = args.n_iter if args.n_iter is not None else trainer_config.get('n_iter', 200)
     enable_wandb = trainer_config.get('enable_wandb', False)  # 从 trainer config 读取 wandb 开关
     wandb_project = trainer_config.get('wandb_project', 'sourcetorch-project')  # 从 trainer config 读取 wandb 项目名称
-    wandb_run_name = trainer_config.get('wandb_run_name', f"{args.agent_name.upper()}_{args.network_name}")  # 从 trainer config 读取 wandb 运行名称
+    _wandb_base = trainer_config.get('wandb_run_name', f"{args.agent_name.upper()}_{args.network_name}")
+    _wandb_parts = [_wandb_base, args.network_name]
+    if args.nn_variant:
+        _wandb_parts.append(args.nn_variant)
+    _wandb_parts.append(datetime.now().strftime("%m%d_%H%M%S"))
+    wandb_run_name = "__".join(_wandb_parts)  # 每次运行唯一，避免 W&B 里多实验同名难辨
     wandb_entity = args.wandb_entity or trainer_config.get('wandb_entity', None)
     
     # Learning Rate: 如果用户没有显式指定（使用默认值 3e-5），则从 YAML 读取
@@ -127,7 +198,10 @@ def main():
         learning_rate = args.lr
     
     batch_size = trainer_config.get('batch_size', 256)
-    n_optim_steps = trainer_config.get('n_optim_steps', 1) or 1
+    if args.n_optim_steps is not None:
+        n_optim_steps = max(1, args.n_optim_steps)
+    else:
+        n_optim_steps = trainer_config.get('n_optim_steps', 1) or 1
     
     print("=" * 80)
     print("SourceTorch Training")
@@ -137,6 +211,7 @@ def main():
     print(f"Iterations: {n_iter}")
     print(f"Parallel Envs: {args.n_envs}")
     print(f"Steps per Env: {args.n_steps}")
+    print(f"n_optim_steps (epochs on rollout): {n_optim_steps}")
     print(f"Learning Rate: {learning_rate}")
     print(f"Device: {args.device}")
     if args.resume_from:
@@ -205,9 +280,9 @@ def main():
         # 从头开始训练，创建新目录
         resume_checkpoint = None
         
-        # 创建输出目录（使用美观的命名格式）
+        # 创建输出目录（时间戳 + PID，避免同一秒并行多任务撞同一目录导致空目录/互相覆盖）
         timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-        exp_name = f"{args.agent_name.upper()} {timestamp}"
+        exp_name = f"{args.agent_name.upper()} {timestamp}_{os.getpid()}"
         
         # 使用相对路径
         base_dir = "checkpoints-and-logs/local"

@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NN Experiment Analysis Report</title>
+  <style>
+    :root {
+      --bg: #f6f3ed;
+      --paper: #fffdf9;
+      --ink: #1d2433;
+      --muted: #5d6472;
+      --line: #d8d1c5;
+      --accent: #355070;
+      --accent-2: #287271;
+      --good: #2f855a;
+      --warn: #c05621;
+      --bad: #c53030;
+      --shadow: 0 14px 36px rgba(29, 36, 51, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top right, rgba(40, 114, 113, 0.10), transparent 28%),
+        radial-gradient(circle at top left, rgba(53, 80, 112, 0.10), transparent 32%),
+        var(--bg);
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      line-height: 1.6;
+    }
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 36px 28px 72px;
+    }
+    header {
+      background: linear-gradient(135deg, rgba(53, 80, 112, 0.96), rgba(40, 114, 113, 0.90));
+      color: #fff;
+      padding: 28px 30px;
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+    header h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0;
+      max-width: 980px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+    section {
+      background: var(--paper);
+      border: 1px solid rgba(216, 209, 197, 0.72);
+      border-radius: 22px;
+      padding: 24px 24px 28px;
+      margin-top: 22px;
+      box-shadow: var(--shadow);
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 26px;
+      line-height: 1.2;
+    }
+    h3 {
+      margin: 16px 0 10px;
+      font-size: 20px;
+    }
+    p {
+      margin: 8px 0 0;
+    }
+    .lede {
+      color: var(--muted);
+      max-width: 1040px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .card {
+      border-radius: 18px;
+      padding: 18px 18px 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(246,243,237,0.82));
+      border: 1px solid rgba(216, 209, 197, 0.86);
+    }
+    .card .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 0 0 6px;
+    }
+    .card .metric {
+      font-size: 30px;
+      line-height: 1.1;
+      margin: 0 0 6px;
+    }
+    .callout {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(53, 80, 112, 0.06);
+      border-left: 5px solid var(--accent);
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 18px;
+      align-items: start;
+      margin-top: 12px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 14px;
+    }
+    .chart {
+      margin-top: 16px;
+      border: 1px solid rgba(216, 209, 197, 0.86);
+      border-radius: 18px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .chart img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .bullet-list {
+      margin: 10px 0 0;
+      padding-left: 20px;
+    }
+    .bullet-list li {
+      margin: 8px 0;
+    }
+    .family-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .family-box {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(246, 243, 237, 0.78);
+      border: 1px solid rgba(216, 209, 197, 0.86);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 14px;
+    }
+    th, td {
+      border-bottom: 1px solid rgba(216, 209, 197, 0.86);
+      padding: 10px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      position: sticky;
+      top: 0;
+      background: var(--paper);
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(40, 114, 113, 0.12);
+      color: #1f5a59;
+      border: 1px solid rgba(40, 114, 113, 0.18);
+    }
+    .mono {
+      font-family: "SFMono-Regular", ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+      font-size: 13px;
+    }
+    .matrix td, .matrix th {
+      text-align: center;
+    }
+    footer {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+    @media (max-width: 980px) {
+      .two-col, .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>FC / CNN / Transformer 训练日志数据分析报告</h1>
+      <p>
+        本报告分析了 <strong>16</strong> 个带明确网络标签的实验目录，来源于
+        <span class="mono">checkpoints-and-logs/local</span>。核心指标来自
+        <span class="mono">training_history_full.csv</span>、
+        <span class="mono">evaluation_metrics.csv</span> 和可用的
+        <span class="mono">monitor_summary.json</span>。按你的新要求，所有图表与正文主结论统一只看
+        <strong>前 3000 iter</strong>，同时完全排除四个
+        <span class="mono">transformer_1/2d_old</span> 旧批次实验。
+      </p>
+    </header>
+
+    <section>
+      <h2>一页结论</h2>
+      <p class="lede">
+        报告重点是前 3000 iter 内的训练回报、评估回报、收敛稳定性和计算效率。跨家族对比时需要保留一个重要限定：
+        FC、CNN、Transformer 的 YAML 并不只改了网络结构，同时也带有不同学习率、正则化和损失系数，
+        所以下面的“跨家族结论”本质上是“架构 + 该家族配置组合”的结论；只有 CNN1-5 和 Transformer 1D/2D
+        这两组消融内部对比更接近单变量。
+      </p>
+      <div class="cards">
+        <div class="card">
+          <div class="eyebrow">覆盖实验</div>
+          <div class="metric">16</div>
+          <div>8 个 A2C，8 个 PPO</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">1 Peg 成功数</div>
+          <div class="metric">3</div>
+          <div>1 个 A2C，2 个 PPO</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">最佳最终评估</div>
+          <div class="metric">1.968</div>
+          <div>窗口口径：A2C · FC, PPO · CNN1, PPO · CNN3</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">最快到 1 Peg</div>
+          <div class="metric">PPO · CNN1</div>
+          <div>按评估 epoch: 880；按墙钟时间最快的是 A2C · FC，13.8 分钟</div>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>CNN 变体说明：</strong>
+        目录中的 <span class="mono">cnn1</span> 到 <span class="mono">cnn5</span> 没有保存显式 variant 键。
+        本报告按照配置文件 <span class="mono">config/nn/conv-policy-value-ablations.yaml</span> 的 A→E 顺序进行推断映射，
+        即 <span class="mono">cnn1≈A</span>、<span class="mono">cnn2≈B</span>、<span class="mono">cnn3≈C</span>、
+        <span class="mono">cnn4≈D</span>、<span class="mono">cnn5≈E</span>。这条映射应视为高概率推断，而不是日志中直接记录的事实。
+      </div>
+      <ul class="bullet-list">
+        <li>
+          <strong>FC 家族：</strong>
+          A2C · FC 在前 3000 iter 内已经于 <strong>2010</strong> epoch 首次进入 1-peg 区间，窗口末评估奖励保持在 <strong>1.968</strong>；PPO · FC 也停在
+          <strong>0.968</strong>。
+        </li>
+        <li>
+          <strong>PPO 的最强组集中在 CNN：</strong>
+          PPO · CNN1, PPO · CNN3 都进入了 1-peg 区间，
+          其中 PPO · CNN1 的评估样本效率最高。
+        </li>
+        <li>
+          <strong>A2C 的 Transformer 明显更脆弱：</strong>
+          A2C · Transformer 1D 在 iter 3000 时的梯度范数达到
+          115.278，
+          明显高于 A2C · Transformer 2D 的
+          0.895，
+          同时熵更低，表现出更强的塌缩倾向。
+        </li>
+        <li>
+          <strong>前 3000 iter 内也能观察到明显回退：</strong>
+          回退幅度最大的实验是 A2C · CNN3，
+          窗口内最佳评估奖励与窗口末评估奖励相差 0.968。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>实验范围与方法</h2>
+      <div class="two-col">
+        <div>
+          <h3>纳入范围</h3>
+          <ul class="bullet-list">
+            <li>纳入所有目录名带 <span class="mono">_fc</span>、<span class="mono">_cnn*</span>、<span class="mono">_transformer*</span> 的实验。</li>
+            <li>排除 1 个无架构后缀目录：<span class="mono">A2C 2026-04-18 21-56-01</span>。</li>
+            <li>按你的要求额外排除 4 个旧版 Transformer 实验：<span class="mono">A2C/PPO + transformer_1d_old/transformer_2d_old</span>。</li>
+            <li>训练过程使用 <span class="mono">training_history_full.csv</span>；评估曲线使用 <span class="mono">evaluation_metrics.csv</span>。</li>
+            <li>梯度稳定性优先用 <span class="mono">monitor_summary.json</span>，缺失时退回到训练历史。</li>
+            <li>所有图表、矩阵表和正文主结论统一只使用 <span class="mono">epoch &lt;= 3000</span> 的数据窗口。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>指标定义</h3>
+          <ul class="bullet-list">
+            <li><strong>Best / Final evaluation reward：</strong> 都限定在前 3000 iter 内。</li>
+            <li><strong>1-peg epoch：</strong> 第一次达到 <span class="mono">pegs_left &lt;= 1</span> 且 epoch 不超过 3000。</li>
+            <li><strong>Regression gap：</strong> <span class="mono">best_eval - final_eval</span>，两者都按窗口口径计算。</li>
+            <li><strong>Final critic loss：</strong> iter 3000 前最后一个训练点的 <span class="mono">critic_loss</span>。</li>
+            <li><strong>Final entropy：</strong> iter 3000 前最后一个训练点的策略熵。</li>
+            <li><strong>Final gradient：</strong> iter 3000 前最后一个可用梯度监控值。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>A2C / PPO 实验配置参数</h2>
+      <p class="lede">
+        这里列的是当前仓库里训练入口 <span class="mono">runTorch.py</span> 的公共默认参数，以及
+        <span class="mono">config/agent-trainer</span> 下的算法训练器配置。它们定义了本批实验的基础训练预算与 PPO 特有超参数。
+      </p>
+      <div class="two-col">
+        <div>
+          <h3>公共运行参数</h3>
+          <ul class="bullet-list">
+            <li><span class="mono">n_envs = 64</span></li>
+            <li><span class="mono">n_steps = 32</span></li>
+            <li><span class="mono">device = cuda</span>（训练入口默认值）</li>
+            <li><span class="mono">enable_monitors = true</span></li>
+            <li>学习率默认来自对应网络 YAML 的 <span class="mono">optimizer.lr</span>，除非命令行显式覆盖。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>A2C 训练器参数</h3>
+          <ul class="bullet-list">
+            <li><span class="mono">batch_size = 64</span></li>
+            <li><span class="mono">n_iter = 14000</span></li>
+            <li><span class="mono">n_optim_steps = 1</span></li>
+            <li><span class="mono">n_games_train = 64</span></li>
+            <li><span class="mono">n_games_eval = 50</span></li>
+            <li><span class="mono">n_steps_update = 32</span></li>
+            <li><span class="mono">log_every = 10</span></li>
+            <li><span class="mono">seed = 42</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="two-col">
+        <div>
+          <h3>PPO 训练器参数</h3>
+          <ul class="bullet-list">
+            <li><span class="mono">batch_size = 64</span></li>
+            <li><span class="mono">n_iter = 14000</span></li>
+            <li><span class="mono">n_optim_steps = 4</span></li>
+            <li><span class="mono">n_games_train = 64</span></li>
+            <li><span class="mono">n_games_eval = 50</span></li>
+            <li><span class="mono">n_steps_update = 32</span></li>
+            <li><span class="mono">log_every = 10</span></li>
+            <li><span class="mono">seed = 42</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>PPO 专有超参数</h3>
+          <ul class="bullet-list">
+            <li><span class="mono">clip_epsilon = 0.2</span></li>
+            <li><span class="mono">value_loss_coef = 0.5</span></li>
+            <li><span class="mono">entropy_coef = 0.01</span></li>
+            <li><span class="mono">max_grad_norm = 0.5</span></li>
+            <li><span class="mono">use_gae = true</span></li>
+            <li><span class="mono">gae_lambda = 0.95</span></li>
+            <li><span class="mono">discount = 0.99</span></li>
+            <li><span class="mono">normalize_advantages = true</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>网络结构侧写</h2>
+      <p class="lede">
+        这里按当前代码与配置文件总结三类网络的结构变化轴。FC 与 Transformer 主要是家族级差异，CNN 和 Transformer 位置编码内部则属于更标准的消融。
+      </p>
+      <div class="grid-3">
+        <div class="chart"><img src="assets/architecture_fc.svg" alt="FC architecture" /></div>
+        <div class="chart"><img src="assets/architecture_cnn.svg" alt="CNN architecture" /></div>
+        <div class="chart"><img src="assets/architecture_transformer.svg" alt="Transformer architecture" /></div>
+      </div>
+      <div class="family-grid">
+        <div class="family-box">
+          <h3>FC</h3>
+          <p>全局展平后直接送入多层 MLP。优点是实现简单、单步训练开销低；缺点是完全丢掉 2D 局部结构先验。</p>
+        </div>
+        <div class="family-box">
+          <h3>CNN</h3>
+          <p>共享卷积骨干加残差块，再接 policy / value head。cnn1-cnn5 这组实验本质上在测试核大小、归一化方式和残差增强模块。</p>
+        </div>
+        <div class="family-box">
+          <h3>Transformer</h3>
+          <p>将棋盘展平成 49 个 token，先做线性嵌入，再注入 1D 或 2D 位置编码。本报告仅保留新批次的 1D/2D 对比，不再展示旧批次结果。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>全局对比</h2>
+      <div class="chart"><img src="assets/overall_final_eval.svg" alt="Final evaluation reward by run" /></div>
+      <div class="chart"><img src="assets/family_final_eval.svg" alt="Final evaluation reward by family and algorithm" /></div>
+      <div class="two-col">
+        <div class="chart"><img src="assets/solved_efficiency.svg" alt="Epoch to first one-peg evaluation" /></div>
+        <div class="chart"><img src="assets/overall_regression_gap.svg" alt="Regression gap" /></div>
+      </div>
+      <h3>读图要点</h3>
+      <ul class="bullet-list">
+        <li>所有全局图都按前 3000 iter 重算，所以这里比较的是“早期效率”，不是完整训练终局。</li>
+        <li>最终评估奖励并不是唯一标准；一些实验在前 3000 iter 内已经出现回退，所以要同时看 regression gap。</li>
+        <li>按窗口内评估 epoch 看，最快的 1-peg 方案来自 PPO-CNN；在保留实验里，Transformer 还没有在 iter 3000 前进入 1-peg。</li>
+      </ul>
+      <div class="table-wrap">
+        <table class='matrix'><thead><tr><th>Family</th><th>A2C @ iter≤3000</th><th>PPO @ iter≤3000</th></tr></thead><tbody><tr><th>fc</th><td style='background:rgba(78, 176, 82, 0.34);'>1.968<br/><span class='mono'>pegs=1.0</span></td><td style='background:rgba(164, 208, 157, 0.34);'>0.968<br/><span class='mono'>pegs=2.0</span></td></tr><tr><th>cnn1</th><td style='background:rgba(241, 236, 225, 0.34);'>0.065<br/><span class='mono'>pegs=30.0</span></td><td style='background:rgba(78, 176, 82, 0.34);'>1.968<br/><span class='mono'>pegs=1.0</span></td></tr><tr><th>cnn2</th><td style='background:rgba(167, 209, 159, 0.34);'>0.935<br/><span class='mono'>pegs=3.0</span></td><td style='background:rgba(164, 208, 157, 0.34);'>0.968<br/><span class='mono'>pegs=2.0</span></td></tr><tr><th>cnn3</th><td style='background:rgba(247, 239, 230, 0.34);'>0.000<br/><span class='mono'>pegs=32.0</span></td><td style='background:rgba(78, 176, 82, 0.34);'>1.968<br/><span class='mono'>pegs=1.0</span></td></tr><tr><th>cnn4</th><td style='background:rgba(164, 208, 157, 0.34);'>0.968<br/><span class='mono'>pegs=2.0</span></td><td style='background:rgba(164, 208, 157, 0.34);'>0.968<br/><span class='mono'>pegs=2.0</span></td></tr><tr><th>cnn5</th><td style='background:rgba(167, 209, 159, 0.34);'>0.935<br/><span class='mono'>pegs=3.0</span></td><td style='background:rgba(178, 213, 169, 0.34);'>0.806<br/><span class='mono'>pegs=7.0</span></td></tr><tr><th>transformer_1d</th><td style='background:rgba(186, 216, 176, 0.34);'>0.710<br/><span class='mono'>pegs=10.0</span></td><td style='background:rgba(178, 213, 169, 0.34);'>0.806<br/><span class='mono'>pegs=7.0</span></td></tr><tr><th>transformer_2d</th><td style='background:rgba(178, 213, 169, 0.34);'>0.806<br/><span class='mono'>pegs=7.0</span></td><td style='background:rgba(183, 215, 174, 0.34);'>0.742<br/><span class='mono'>pegs=9.0</span></td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>FC 家族</h2>
+      <div class="chart"><img src="assets/fc_eval_curves.svg" alt="FC evaluation curves" /></div>
+      <p>
+        如果只看前 3000 iter，FC 还没有把 A2C 和 PPO 拉开到“是否 1-peg solved”这么大的差距。
+        A2C · FC 的窗口末评估奖励为
+        <strong>1.968</strong>，
+        PPO · FC 为
+        <strong>0.968</strong>。
+        也就是说，FC 的优势在 3000 iter 窗口内已经能看见，但它仍然更像一条稳步爬升曲线，而不是最激进的早期解法。
+      </p>
+      <p>
+        从早期曲线看，FC 更像是一个稳步爬升但启动不算快的基线。
+      </p>
+    </section>
+
+    <section>
+      <h2>CNN 消融</h2>
+      <div class="two-col">
+        <div class="chart"><img src="assets/a2c_cnn_eval_curves.svg" alt="A2C CNN curves" /></div>
+        <div class="chart"><img src="assets/ppo_cnn_eval_curves.svg" alt="PPO CNN curves" /></div>
+      </div>
+      <h3>主要发现</h3>
+      <ul class="bullet-list">
+        <li>
+          <strong>A2C-CNN：</strong> 如果采用上面的 A→E 推断映射，那么 3x3 系列
+          (<span class="mono">cnn2/cnn4/cnn5</span>) 在前 3000 iter 的稳定性明显好于 5x5 系列
+          (<span class="mono">cnn1/cnn3</span>)。前者大多维持在 2 pegs 左右，后者更容易提前回退。
+        </li>
+        <li>
+          <strong>PPO-CNN：</strong> <span class="mono">cnn1</span> 和 <span class="mono">cnn3</span> 都能在前 3000 iter 内进入 1-peg 区间，
+          说明 5x5 核在 PPO 下并不吃亏；但 <span class="mono">cnn5</span> 在加入 PreAct + SE 后反而从
+          <span class="mono">0.903</span>
+          回退到 <span class="mono">0.806</span>，
+          这意味着“更复杂的残差增强”至少没有改善前 3000 iter 的早期效率。
+        </li>
+        <li>
+          <strong>更稳的结论：</strong> 这组 CNN 内部消融比跨家族对比更可信，因为它们共享同一个卷积家族框架，只改核大小、归一化和残差样式。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Transformer 位置编码与稳定性</h2>
+      <div class="two-col">
+        <div class="chart"><img src="assets/a2c_transformer_eval_curves.svg" alt="A2C transformer curves" /></div>
+        <div class="chart"><img src="assets/ppo_transformer_eval_curves.svg" alt="PPO transformer curves" /></div>
+      </div>
+      <div class="two-col">
+        <div>
+          <p>
+            在 A2C 下，Transformer 仍然是最容易出现训练不稳的一类。A2C · Transformer 1D 在 iter 3000
+            时的梯度范数为 <strong>115.278</strong>，
+            熵为 <strong>0.012</strong>；
+            而 A2C · Transformer 2D 分别是
+            <strong>0.895</strong> 和
+            <strong>0.064</strong>。
+            这说明在保留实验里，2D 位置编码至少提升了前 3000 iter 的稳定性。
+          </p>
+          <p>
+            但这个优势并没有在 PPO 下转化成绝对性能突破。PPO · Transformer 1D 和
+            PPO · Transformer 2D 在前 3000 iter 内都没有达到 1 peg，
+            且窗口末评估奖励分别只有 <strong>0.806</strong> 和
+            <strong>0.742</strong>。
+          </p>
+        </div>
+        <div class="chart"><img src="assets/transformer_gradient_final.svg" alt="Transformer gradients" /></div>
+      </div>
+      <p>
+        由于旧版四个实验已被移除，这里只保留新批次 1D/2D 的同窗比较。
+      </p>
+    </section>
+
+    <section>
+      <h2>Critic Loss 与策略熵</h2>
+      <p class="lede">
+        这两个指标都取自前 3000 iter 窗口内最后一个训练点。熵更接近“策略是否过早变得确定”，critic loss 更接近“价值函数当前拟合误差”；
+        它们都能辅助解释稳定性，但都不能单独替代评估回报。
+      </p>
+      <div class="chart"><img src="assets/entropy_final.svg" alt="Final policy entropy by run" /></div>
+      <div class="chart"><img src="assets/critic_loss_final.svg" alt="Final critic loss by run" /></div>
+      <h3>读图要点</h3>
+      <ul class="bullet-list">
+        <li>
+          <strong>最低熵的一组基本都对应塌缩：</strong>
+          A2C · CNN1、A2C · CNN3、A2C · Transformer 1D
+          的窗口末熵分别只有
+          <strong>0.000</strong>、
+          <strong>0.006</strong> 和
+          <strong>0.012</strong>，
+          其中前两个实验的窗口末评估奖励已经退到
+          <strong>0.065</strong> 和
+          <strong>0.000</strong>。
+        </li>
+        <li>
+          <strong>熵也不是越高越好：</strong>
+          PPO · CNN5 的窗口末熵最高，为
+          <strong>1.281</strong>，
+          但窗口末评估奖励只有 <strong>0.806</strong>。
+          相比之下，真正跑到 1-peg 的 PPO · CNN1 和
+          PPO · CNN3 分别停在
+          <strong>0.419</strong> 和
+          <strong>0.569</strong>，
+          说明中等熵水平更像“既保留探索、又没有完全塌缩”的平衡点。
+        </li>
+        <li>
+          <strong>critic loss 与最终表现不是单调关系：</strong>
+          最高的窗口末 critic loss 出现在
+          A2C · Transformer 1D，达到
+          <strong>0.152</strong>，
+          这和它的梯度尖峰、评估回退是一致的；但最低的三项里也包含
+          A2C · CNN3 和 A2C · CNN1，
+          它们的 critic loss 虽低，窗口末评估奖励却只有
+          <strong>0.000</strong> 和
+          <strong>0.065</strong>。
+        </li>
+        <li>
+          <strong>更健康的组合通常出现在“中等 critic loss + 非零熵”：</strong>
+          例如 A2C · FC 的窗口末 critic loss /
+          entropy 为 <strong>0.038</strong> /
+          <strong>0.211</strong>，
+          而 PPO · CNN1 和
+          PPO · CNN3 也都在非零熵下保持了零回退。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>效率与成本</h2>
+      <div class="chart"><img src="assets/runtime_per_epoch.svg" alt="Runtime per epoch" /></div>
+      <p>
+        A2C-FC 在前 3000 iter 内平均每个 epoch 只需
+        <strong>0.406</strong> 秒；
+        PPO-Transformer 1D 约为 <strong>3.348</strong> 秒。
+        这解释了为什么 PPO-Transformer 即使曲线不占优，仍会消耗明显更多的优化时间。
+      </p>
+    </section>
+
+    <section>
+      <h2>实验汇总（前 3000 iter 口径）</h2>
+      <div class="table-wrap">
+        <table><thead><tr><th>Run</th><th>Focus</th><th>Eval reward @ iter≤3000</th><th>Pegs left</th><th>Best epoch</th><th>1-peg epoch</th><th>Cost</th><th>Regression</th><th>Entropy</th><th>Critic</th><th>Grad</th><th>Reading</th></tr></thead><tbody><tr><td><strong>A2C · FC</strong><br/><span class='mono'>A2C 2026-04-18 22-21-17_fc</span></td><td>147-d flatten -&gt; GELU MLP -&gt; policy/value heads</td><td style='background:rgba(78, 176, 82, 0.34);'><strong>1.968</strong><br/>best 1.968</td><td>1.0<br/>best 1.0</td><td>2,010</td><td>2010</td><td>20.3<br/>0.406 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(203, 118, 74, 0.28);'>0.211</td><td style='background:rgba(231, 191, 204, 0.28);'>0.038</td><td>0.071</td><td>1-peg solved; held solution</td></tr><tr><td><strong>A2C · CNN1</strong><br/><span class='mono'>A2C 2026-04-19 00-30-50_cnn1</span></td><td>CNN-A: 5x5 + BatchNorm</td><td style='background:rgba(241, 236, 225, 0.34);'><strong>0.065</strong><br/>best 0.935</td><td>30.0<br/>best 3.0</td><td>200</td><td>—</td><td>15.1<br/>0.498 s/epoch</td><td style='background:rgba(213, 94, 108, 0.32);'>0.871</td><td style='background:rgba(192, 86, 33, 0.28);'>0.000</td><td style='background:rgba(240, 218, 218, 0.28);'>0.017</td><td>0.034</td><td>briefly improved then collapsed; entropy collapse</td></tr><tr><td><strong>A2C · CNN2</strong><br/><span class='mono'>A2C 2026-04-19 00-48-53_cnn2</span></td><td>CNN-B: 3x3 + BatchNorm</td><td style='background:rgba(167, 209, 159, 0.34);'><strong>0.935</strong><br/>best 0.968</td><td>3.0<br/>best 2.0</td><td>360</td><td>—</td><td>25.1<br/>0.503 s/epoch</td><td style='background:rgba(245, 233, 225, 0.32);'>0.032</td><td style='background:rgba(213, 146, 110, 0.28);'>0.395</td><td style='background:rgba(237, 209, 214, 0.28);'>0.023</td><td>0.068</td><td>stable at 2 pegs</td></tr><tr><td><strong>A2C · CNN3</strong><br/><span class='mono'>A2C 2026-04-19 03-18-03_cnn3</span></td><td>CNN-C: 5x5 + GroupNorm</td><td style='background:rgba(247, 239, 230, 0.34);'><strong>0.000</strong><br/>best 0.968</td><td>32.0<br/>best 2.0</td><td>540</td><td>—</td><td>9.0<br/>0.581 s/epoch</td><td style='background:rgba(210, 78, 95, 0.32);'>0.968</td><td style='background:rgba(192, 86, 34, 0.28);'>0.006</td><td style='background:rgba(241, 222, 221, 0.28);'>0.013</td><td>0.098</td><td>peaked at 2 pegs; entropy collapse</td></tr><tr><td><strong>A2C · CNN4</strong><br/><span class='mono'>A2C 2026-04-19 03-29-09_cnn4</span></td><td>CNN-D: 3x3 + GroupNorm</td><td style='background:rgba(164, 208, 157, 0.34);'><strong>0.968</strong><br/>best 0.968</td><td>2.0<br/>best 2.0</td><td>240</td><td>—</td><td>26.6<br/>0.533 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(201, 111, 66, 0.28);'>0.169</td><td style='background:rgba(239, 216, 217, 0.28);'>0.018</td><td>0.015</td><td>stable at 2 pegs</td></tr><tr><td><strong>A2C · CNN5</strong><br/><span class='mono'>A2C 2026-04-20 04-33-09_cnn5</span></td><td>CNN-E: 3x3 + GroupNorm + PreAct residual + SE</td><td style='background:rgba(167, 209, 159, 0.34);'><strong>0.935</strong><br/>best 0.968</td><td>3.0<br/>best 2.0</td><td>420</td><td>—</td><td>39.6<br/>0.791 s/epoch</td><td style='background:rgba(245, 233, 225, 0.32);'>0.032</td><td style='background:rgba(228, 188, 164, 0.28);'>0.669</td><td style='background:rgba(236, 208, 213, 0.28);'>0.024</td><td>0.062</td><td>stable at 2 pegs</td></tr><tr><td><strong>A2C · Transformer 1D</strong><br/><span class='mono'>A2C 2026-04-20 16-18-59_transformer_1d</span></td><td>1D sinusoidal positional encoding</td><td style='background:rgba(186, 216, 176, 0.34);'><strong>0.710</strong><br/>best 0.903</td><td>10.0<br/>best 4.0</td><td>20</td><td>—</td><td>33.8<br/>1.015 s/epoch</td><td style='background:rgba(239, 206, 203, 0.32);'>0.194</td><td style='background:rgba(192, 87, 35, 0.28);'>0.012</td><td style='background:rgba(184, 50, 128, 0.28);'>0.152</td><td>115.278</td><td>briefly improved then collapsed; entropy collapse; gradient spike</td></tr><tr><td><strong>A2C · Transformer 2D</strong><br/><span class='mono'>A2C 2026-04-20 16-19-00_transformer_2d</span></td><td>2D learnable row/col positional encoding</td><td style='background:rgba(178, 213, 169, 0.34);'><strong>0.806</strong><br/>best 0.903</td><td>7.0<br/>best 4.0</td><td>50</td><td>—</td><td>33.2<br/>0.995 s/epoch</td><td style='background:rgba(243, 222, 216, 0.32);'>0.097</td><td style='background:rgba(195, 95, 45, 0.28);'>0.064</td><td style='background:rgba(225, 174, 194, 0.28);'>0.052</td><td>0.895</td><td>briefly improved then collapsed</td></tr><tr><td><strong>PPO · FC</strong><br/><span class='mono'>PPO 2026-04-19 06-08-11_fc</span></td><td>147-d flatten -&gt; GELU MLP -&gt; policy/value heads</td><td style='background:rgba(164, 208, 157, 0.34);'><strong>0.968</strong><br/>best 0.968</td><td>2.0<br/>best 2.0</td><td>580</td><td>—</td><td>79.4<br/>1.587 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(219, 161, 130, 0.28);'>0.494</td><td style='background:rgba(239, 215, 217, 0.28);'>0.019</td><td>—</td><td>stable at 2 pegs</td></tr><tr><td><strong>PPO · CNN1</strong><br/><span class='mono'>PPO 2026-04-19 13-07-41_cnn1</span></td><td>CNN-A: 5x5 + BatchNorm</td><td style='background:rgba(78, 176, 82, 0.34);'><strong>1.968</strong><br/>best 1.968</td><td>1.0<br/>best 1.0</td><td>880</td><td>880</td><td>105.2<br/>2.103 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(215, 150, 115, 0.28);'>0.419</td><td style='background:rgba(223, 168, 191, 0.28);'>0.057</td><td>—</td><td>1-peg solved; held solution</td></tr><tr><td><strong>PPO · CNN2</strong><br/><span class='mono'>PPO 2026-04-19 19-16-25_cnn2</span></td><td>CNN-B: 3x3 + BatchNorm</td><td style='background:rgba(164, 208, 157, 0.34);'><strong>0.968</strong><br/>best 0.968</td><td>2.0<br/>best 2.0</td><td>230</td><td>—</td><td>103.5<br/>2.071 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(234, 203, 184, 0.28);'>0.769</td><td style='background:rgba(237, 211, 215, 0.28);'>0.022</td><td>0.057</td><td>stable at 2 pegs</td></tr><tr><td><strong>PPO · CNN3</strong><br/><span class='mono'>PPO 2026-04-19 21-08-53_cnn3</span></td><td>CNN-C: 5x5 + GroupNorm</td><td style='background:rgba(78, 176, 82, 0.34);'><strong>1.968</strong><br/>best 1.968</td><td>1.0<br/>best 1.0</td><td>900</td><td>900</td><td>110.7<br/>2.215 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(223, 172, 145, 0.28);'>0.569</td><td style='background:rgba(223, 167, 191, 0.28);'>0.057</td><td>0.125</td><td>1-peg solved; held solution</td></tr><tr><td><strong>PPO · CNN4</strong><br/><span class='mono'>PPO 2026-04-19 23-09-53_cnn4</span></td><td>CNN-D: 3x3 + GroupNorm</td><td style='background:rgba(164, 208, 157, 0.34);'><strong>0.968</strong><br/>best 0.968</td><td>2.0<br/>best 2.0</td><td>180</td><td>—</td><td>110.7<br/>2.215 s/epoch</td><td style='background:rgba(247, 239, 230, 0.32);'>0.000</td><td style='background:rgba(231, 194, 172, 0.28);'>0.710</td><td style='background:rgba(237, 210, 214, 0.28);'>0.023</td><td>0.113</td><td>stable at 2 pegs</td></tr><tr><td><strong>PPO · CNN5</strong><br/><span class='mono'>PPO 2026-04-19 23-25-12_cnn5</span></td><td>CNN-E: 3x3 + GroupNorm + PreAct residual + SE</td><td style='background:rgba(178, 213, 169, 0.34);'><strong>0.806</strong><br/>best 0.903</td><td>7.0<br/>best 4.0</td><td>1,080</td><td>—</td><td>171.8<br/>3.435 s/epoch</td><td style='background:rgba(243, 222, 216, 0.32);'>0.097</td><td style='background:rgba(247, 239, 230, 0.28);'>1.281</td><td style='background:rgba(232, 194, 206, 0.28);'>0.036</td><td>—</td><td>briefly improved then collapsed</td></tr><tr><td><strong>PPO · Transformer 1D</strong><br/><span class='mono'>PPO 2026-04-20 14-18-23_transformer_1d</span></td><td>1D sinusoidal positional encoding</td><td style='background:rgba(178, 213, 169, 0.34);'><strong>0.806</strong><br/>best 0.903</td><td>7.0<br/>best 4.0</td><td>130</td><td>—</td><td>111.6<br/>3.348 s/epoch</td><td style='background:rgba(243, 222, 216, 0.32);'>0.097</td><td style='background:rgba(217, 156, 123, 0.28);'>0.459</td><td style='background:rgba(233, 197, 207, 0.28);'>0.033</td><td>0.033</td><td>briefly improved then collapsed</td></tr><tr><td><strong>PPO · Transformer 2D</strong><br/><span class='mono'>PPO 2026-04-20 14-18-23_transformer_2d</span></td><td>2D learnable row/col positional encoding</td><td style='background:rgba(183, 215, 174, 0.34);'><strong>0.742</strong><br/>best 0.903</td><td>9.0<br/>best 4.0</td><td>1,080</td><td>—</td><td>113.7<br/>3.411 s/epoch</td><td style='background:rgba(240, 212, 207, 0.32);'>0.161</td><td style='background:rgba(220, 165, 135, 0.28);'>0.519</td><td style='background:rgba(232, 194, 206, 0.28);'>0.036</td><td>0.035</td><td>briefly improved then collapsed</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>建议</h2>
+      <ul class="bullet-list">
+        <li>如果下一轮目标是“前 3000 iter 内尽快拿到高评估表现”，优先保留 <span class="mono">PPO + CNN1/CNN3</span>。</li>
+        <li>如果继续做 CNN 消融，建议先围绕核大小和归一化做更细粒度验证，再决定是否保留 PreAct + SE；当前证据并不支持它改善早期效率。</li>
+        <li>如果继续做 Transformer，先把训练稳定性作为第一优先级，尤其是 A2C 下的梯度异常和熵塌缩。</li>
+        <li>如果要做严格的“只改网络结构”结论，建议把 FC / CNN / Transformer 的学习率、熵系数和损失系数统一后再复现实验。</li>
+      </ul>
+    </section>
+
+    <footer>
+      产物已同时导出为 HTML、CSV 和 JSON。HTML 可直接本地打开；CSV/JSON 可继续用于二次分析。
+    </footer>
+  </div>
+</body>
+</html>

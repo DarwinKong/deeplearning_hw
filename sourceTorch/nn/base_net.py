@@ -5,8 +5,16 @@ from sourceTorch.nn.network_config import NetConfig
 from sourceTorch.nn.utils import get_activation, get_initializer, get_loss, get_optimizer
 
 
-INIT_EXCLUDE_MODULES = {"norm", "bias"}
+INIT_EXCLUDE_MODULES = {"norm", "bias", "bn", "batch_norm", "groupnorm", "preact_bns"}
 REGULARIZATION_KEYS = {"entropy", "kl"}
+
+# kaiming/xavier 需要 fan，仅适用于 dim>=2；BN/LN 的 1D scale 等必须跳过
+_FAN_INITS = (
+    torch.nn.init.kaiming_normal_,
+    torch.nn.init.kaiming_uniform_,
+    torch.nn.init.xavier_normal_,
+    torch.nn.init.xavier_uniform_,
+)
 
 
 class BaseNet(nn.Module):
@@ -47,7 +55,8 @@ class BaseNet(nn.Module):
 
     def _set_src_mask(self):
         board_mask = self._get_board_mask()
-        self.src_mask = board_mask.repeat((len(board_mask), 1))
+        # 必须用 register_buffer，否则 .to(device) 时 mask 留在 CPU，Transformer 会报 device 不一致
+        self.register_buffer("src_mask", board_mask.repeat((len(board_mask), 1)))
 
     def _set_activation(self, name: str = None, **kwargs):
         activation_class = get_activation(name)
@@ -110,9 +119,11 @@ class BaseNet(nn.Module):
     def initialize(self, **kwargs):
         with torch.no_grad():
             for name, p in self.named_parameters():
-                # initialize param if it is not one of the excluded module names
-                if not any([module_name in name.lower() for module_name in INIT_EXCLUDE_MODULES]):
-                    self.initializer_class(p, **kwargs)
+                if any(module_name in name.lower() for module_name in INIT_EXCLUDE_MODULES):
+                    continue
+                if self.initializer_class in _FAN_INITS and p.dim() < 2:
+                    continue
+                self.initializer_class(p, **kwargs)
 
     def _set_optimizer(self, name: str = None, **kwargs):
         if len(list(self.parameters())) > 0:

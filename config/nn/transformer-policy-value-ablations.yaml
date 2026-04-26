@@ -1,0 +1,87 @@
+# Transformer 位置编码消融：1D 正弦 vs 2D 可学习
+# 使用: python runTorch.py -nn transformer_policy_value --nn-variant transformer_pe_1d
+# 默认见 default_variant
+
+default_variant: transformer_pe_2d
+
+tpl_activation: &activation
+  approximate: tanh
+  name: gelu
+
+tpl_loss: &loss
+  actor_loss:
+    coef: 5.0
+    label_smoothing: 0.000001
+    name: cross_entropy
+    reduction: none
+  critic_loss:
+    coef: 1.0
+    name: mse
+    reduction: mean
+  regularization:
+    coef: 1.0e-04
+    name: entropy
+
+tpl_initializer: &initializer
+  name: he_normal
+
+tpl_optimizer: &optimizer
+  lr: 3.0e-05
+  name: adam
+  weight_decay: 1.0e-05
+
+tpl_arch_base: &arch_base
+  policy_head:
+    bias: true
+    hidden_dim: 128
+    feedforward_hidden_dim: 256
+    n_heads: 4
+    input_dim: 128
+    n_layers: 1
+    output_dim: 4
+  value_head:
+    bias: true
+    hidden_dim: 128
+    feedforward_hidden_dim: 256
+    n_heads: 4
+    input_dim: 128
+    n_layers: 1
+    output_dim: 1
+
+variants:
+  transformer_pe_1d:
+    name: TransformerPolicyValueNet
+    architecture:
+      embeddings:
+        bias: true
+        hidden_dim: 128
+        feedforward_hidden_dim: 256
+        n_heads: 4
+        input_dim: 3
+        n_layers: 2
+        positional_encoding: "1d"
+        max_len: 5000
+      <<: *arch_base
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer
+
+  transformer_pe_2d:
+    name: TransformerPolicyValueNet
+    architecture:
+      embeddings:
+        bias: true
+        hidden_dim: 128
+        feedforward_hidden_dim: 256
+        n_heads: 4
+        input_dim: 3
+        n_layers: 2
+        positional_encoding: "2d"
+        pe_height: 7
+        pe_width: 7
+      <<: *arch_base
+    activation: *activation
+    loss: *loss
+    initializer: *initializer
+    optimizer: *optimizer

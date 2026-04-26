@@ -98,7 +98,7 @@ class BatchedGPUTrainer:
                     "network_config": network_config.config_dict if network_config else None,
                 }
             }
-            if self.wandb_entity is not None:
+            if self.wandb_entity:  # 跳过 None / ""，避免显式 entity 与 API slug 不一致导致 404
                 wandb_args["entity"] = self.wandb_entity
             try:
                 wandb.init(**wandb_args)
@@ -606,13 +606,14 @@ class BatchedGPUTrainer:
                 feasible = single_env.feasible_actions
                 
                 with torch.no_grad():
-                    policy = self.algorithm.get_policy(state)[0]
-                    masked_policy = policy * feasible[0].float()
-                    
-                    if masked_policy.sum() == 0:
+                    # 与训练一致：在 logits 上做掩码（加 -inf）再 argmax，
+                    # 避免无约束的不可行 logits 漂移污染 softmax 分布
+                    logits, _ = self.algorithm.get_logits_and_values(state)
+                    mask = feasible.bool()
+                    if not mask.any():
                         break
-                    
-                    action = torch.argmax(masked_policy).unsqueeze(0)
+                    masked_logits = logits.masked_fill(~mask, float('-inf'))
+                    action = torch.argmax(masked_logits[0]).unsqueeze(0)
                 
                 result = single_env.step(action)
                 done = result['dones'][0].item()

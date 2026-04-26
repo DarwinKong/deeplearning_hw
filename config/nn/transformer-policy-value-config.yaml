@@ -9,6 +9,10 @@ architecture:
     n_heads: 4
     input_dim: 3
     n_layers: 2
+    # 2d = 行/列可学习位置编码；1d = 正弦 1D 序列编码
+    positional_encoding: "2d"
+    pe_height: 7
+    pe_width: 7
   policy_head:
     bias: true
     hidden_dim: 128
